@@ -23,27 +23,73 @@ graphs** — the Uptime-Kuma experience, but MCP-aware. Optional adapters push e
   false positive on rules we don't know)
 
 Each check produces a `CheckEvent`: `status` (up / degraded / down), `latency_ms`,
-`tools_checked` / `tools_failed`, `spec_version`, `spec_version_supported`, `detail`.
+`tools_available`, `tools_checked` / `tools_failed`, `spec_version`, `spec_version_supported`,
+`detail`.
 
-## Run as a service (Docker)
+## Requirements
+
+- **Docker + Docker Compose** — for the container install (Option A), or
+- **Python 3.11+** — for the from-source install (Option B).
+- **Node.js / `npx`** — *optional*, only needed to monitor **stdio** MCP servers you launch
+  via `npx` (or `uvx` for Python-based ones). Not required for http/sse servers.
+
+## Installation
+
+### Option A — Docker (recommended)
 
 ```bash
-docker compose up -d       # builds the image, starts the service, persists data in a volume
+git clone https://github.com/alefra93/MCPSonar.git
+cd MCPSonar
+docker compose up -d          # builds the image and starts the service
 ```
 
-Open **http://localhost:8675**, create your admin account on first run, then click
-**+ Add server** and you're monitoring. The SQLite database lives in a named volume, so your
-servers, history and login survive restarts. Prometheus metrics are at `/metrics`.
+The SQLite database is stored in a named volume (`mcpsonar-data`), so your servers, history
+and login survive restarts and image rebuilds.
 
-## Install & run (pip)
+### Option B — From source (Python)
 
 ```bash
-pip install mcpsonar          # or: pip install -e .   (from a clone)
+git clone https://github.com/alefra93/MCPSonar.git
+cd MCPSonar
+python -m venv .venv
+# activate the venv:
+#   Windows (PowerShell):  .venv\Scripts\Activate.ps1
+#   macOS / Linux:         source .venv/bin/activate
+pip install -e .
 mcpsonar run                  # dashboard at http://127.0.0.1:8675, db at ./mcpsonar.db
 ```
 
-No config file needed — add servers from the UI. `--db PATH` (or `MCPSONAR_DB`) sets the
-database location; `--retention-days N` controls how long history is kept (default 7).
+> On Windows, `python` may be `py`. Once the package is published to PyPI you'll be able to
+> `pip install mcpsonar` directly; until then, install from source as above.
+
+## First run
+
+1. Open **http://localhost:8675** (Docker) or **http://127.0.0.1:8675** (source).
+2. Create your **admin account** on the login page (password ≥ 8 characters).
+3. Click **+ Add server**, enter an MCP server's URL (or a stdio command), and you're
+   monitoring. Prometheus metrics are exposed at `/metrics`.
+
+No config file is required — servers are managed from the UI. (You can optionally seed from a
+YAML file on first run: `mcpsonar run --config config.example.yaml`.)
+
+## Command-line options (`mcpsonar run`)
+
+| Flag | Env var | Default | Purpose |
+|------|---------|---------|---------|
+| `--host` | | `127.0.0.1` | Bind address (`0.0.0.0` to expose on the network). |
+| `--port` | | `8675` | HTTP port for the dashboard / API / `/metrics`. |
+| `--db PATH` | `MCPSONAR_DB` | `./mcpsonar.db` | SQLite database location. |
+| `--retention-days N` | `MCPSONAR_RETENTION_DAYS` | `7` | Drop history older than N days (`0` disables pruning). |
+| `--config FILE` | | — | Seed servers from a YAML file on first run (only when the DB is empty). |
+| `--no-auth` | | off | Disable the login (only behind a trusted proxy / on localhost). |
+
+## Updating
+
+```bash
+git pull
+docker compose up -d --build   # Docker
+pip install -e .               # from source (inside the venv)
+```
 
 ## Authentication
 
@@ -59,6 +105,7 @@ Everything is done from the dashboard or the JSON API — no restart required:
 
 - **Add / Edit / Pause / Delete** a server; changes take effect immediately.
 - **Check now** to run an on-demand check.
+- **Tools** lists the tools a server exposes right now (name + description), queried live.
 - **History** opens uptime % + latency/status graphs over a selectable window (1h / 6h / 24h).
 - **Export / Import** all servers as YAML (bulk setup, backups, moving between instances).
 
@@ -74,7 +121,8 @@ Everything is done from the dashboard or the JSON API — no restart required:
   image. On Windows enter `npx` (bare) — it resolves `npx.cmd` via PATH.
 
 API: `GET/POST/PUT/DELETE /api/servers`, `POST /api/servers/{id}/check`,
-`GET /api/servers/{id}/history`, `GET /api/export`, `POST /api/import`, `GET /api/status`.
+`GET /api/servers/{id}/tools`, `GET /api/servers/{id}/history`, `GET /api/export`,
+`POST /api/import`, `GET /api/status`.
 
 ## Seeding from YAML (optional)
 
