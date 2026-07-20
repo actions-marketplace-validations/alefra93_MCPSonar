@@ -169,7 +169,7 @@ _PAGE = r"""<!doctype html>
   .card.up::before{background:var(--up);} .card.degraded::before{background:var(--degraded);}
   .card.down::before{background:var(--down);} .card.pending::before{background:var(--faint);}
   .card:hover{border-color:var(--border-strong);transform:translateY(-1px);box-shadow:var(--shadow-lg);}
-  .card .top{display:flex;align-items:center;gap:16px;}
+  .card .top{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;}
   .identity{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 220px;}
   .sdot{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 0 4px var(--accent-soft);}
   .sdot.up{background:var(--up);box-shadow:0 0 0 4px color-mix(in srgb,var(--up) 22%,transparent);}
@@ -184,7 +184,8 @@ _PAGE = r"""<!doctype html>
   .tport{font-family:var(--mono);font-size:10px;color:var(--accent-strong);background:var(--accent-soft);
        padding:1px 6px;border-radius:5px;margin-right:6px;text-transform:uppercase;letter-spacing:.03em;}
 
-  .heartbeat{display:flex;gap:2px;align-items:flex-end;height:26px;flex:0 1 auto;}
+  .heartbeat{display:flex;gap:2px;align-items:flex-end;justify-content:flex-end;height:26px;
+       flex:1 1 100px;min-width:0;overflow:hidden;}
   .hb{width:5px;height:24px;border-radius:2px;flex:none;}
   .hb.empty{background:var(--border);opacity:.7;height:12px;align-self:center;}
 
@@ -197,8 +198,7 @@ _PAGE = r"""<!doctype html>
   .pill.pending{color:var(--pending);background:color-mix(in srgb,var(--pending) 14%,transparent);}
   .lat{font-weight:700;font-size:14px;min-width:64px;text-align:right;}
 
-  .acts{display:flex;gap:2px;flex:none;opacity:.5;transition:opacity .15s;}
-  .card:hover .acts,.card:focus-within .acts{opacity:1;}
+  .acts{display:flex;gap:2px;flex:none;flex-wrap:wrap;justify-content:flex-end;margin-left:auto;}
   .act{border:none;background:none;font:inherit;font-size:12.5px;cursor:pointer;color:var(--muted);
        padding:5px 8px;border-radius:7px;transition:all .12s;}
   .act:hover{background:var(--surface-2);color:var(--accent-strong);}
