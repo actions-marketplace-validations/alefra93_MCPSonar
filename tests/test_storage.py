@@ -89,6 +89,20 @@ def _event(server_id: str, status: CheckStatus, at: datetime, latency: float) ->
     )
 
 
+async def test_tools_available_roundtrips():
+    storage = await _store()
+    await storage.record_check(
+        CheckEvent(
+            server_id="s1", status=CheckStatus.UP, checked_at=datetime.now(timezone.utc),
+            latency_ms=10, tools_available=7, spec_version="2025-11-25",
+            spec_version_supported=True,
+        )
+    )
+    hist = await storage.get_history("s1")
+    assert hist[0].tools_available == 7
+    await storage.close()
+
+
 async def test_history_record_query_and_prune():
     storage = await _store()
     base = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)

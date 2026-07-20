@@ -12,7 +12,7 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from .check_engine import check_server
+from .check_engine import _format_exc, _open_session, check_server
 from .loader import parse_config_text
 from .models import ServerInput
 from .scheduler import Scheduler
@@ -67,6 +67,29 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         store.update(event)
         await storage.record_check(event)
         return event.model_dump(mode="json")
+
+    @app.get("/api/servers/{server_id}/tools")
+    async def list_server_tools(server_id: str):
+        """Connect to the server right now and return the tools it exposes (name + description)."""
+        server = await storage.get_server(server_id)
+        if server is None:
+            raise HTTPException(404, "server not found")
+        cfg = server.to_server_config()
+        timeout_s = cfg.thresholds.latency_down_ms / 1000.0 + 5.0
+        try:
+            async with _open_session(cfg, timeout_s) as session:
+                await session.initialize()
+                tools = (await session.list_tools()).tools
+        except Exception as exc:
+            raise HTTPException(502, f"could not list tools: {_format_exc(exc)}") from exc
+        return [
+            {
+                "name": t.name,
+                "title": getattr(t, "title", None),
+                "description": t.description or "",
+            }
+            for t in tools
+        ]
 
     @app.get("/api/servers/{server_id}/history")
     async def history(server_id: str, minutes: int | None = None, limit: int = 500):

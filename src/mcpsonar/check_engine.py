@@ -200,6 +200,7 @@ async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
                 latency_ms=latency_ms,
                 tools_checked=tools_checked,
                 tools_failed=tools_failed,
+                tools_available=len(tools),
                 spec_version=spec_version,
                 spec_version_supported=spec_version_supported,
                 detail=detail,

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS checks (
     latency_ms             REAL NOT NULL,
     tools_checked          INTEGER NOT NULL,
     tools_failed           INTEGER NOT NULL,
+    tools_available        INTEGER NOT NULL DEFAULT 0,
     spec_version           TEXT,
     spec_version_supported INTEGER NOT NULL,
     detail                 TEXT
@@ -60,6 +61,16 @@ def _new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+async def _migrate(conn: aiosqlite.Connection) -> None:
+    """Add columns introduced after the initial schema to pre-existing databases."""
+    cur = await conn.execute("PRAGMA table_info(checks)")
+    columns = {row[1] for row in await cur.fetchall()}
+    if "tools_available" not in columns:
+        await conn.execute(
+            "ALTER TABLE checks ADD COLUMN tools_available INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 class Storage:
     def __init__(self, conn: aiosqlite.Connection) -> None:
         self._conn = conn
@@ -72,6 +83,7 @@ class Storage:
         conn = await aiosqlite.connect(path)
         conn.row_factory = aiosqlite.Row
         await conn.executescript(_SCHEMA)
+        await _migrate(conn)
         await conn.commit()
         return cls(conn)
 
@@ -139,8 +151,8 @@ class Storage:
     async def record_check(self, event: CheckEvent) -> None:
         await self._conn.execute(
             "INSERT INTO checks (server_id, status, checked_at, latency_ms, tools_checked, "
-            "tools_failed, spec_version, spec_version_supported, detail) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "tools_failed, tools_available, spec_version, spec_version_supported, detail) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.server_id,
                 event.status.value,
@@ -148,6 +160,7 @@ class Storage:
                 event.latency_ms,
                 event.tools_checked,
                 event.tools_failed,
+                event.tools_available,
                 event.spec_version,
                 int(event.spec_version_supported),
                 event.detail,
@@ -164,6 +177,7 @@ class Storage:
             latency_ms=row["latency_ms"],
             tools_checked=row["tools_checked"],
             tools_failed=row["tools_failed"],
+            tools_available=row["tools_available"],
             spec_version=row["spec_version"],
             spec_version_supported=bool(row["spec_version_supported"]),
             detail=row["detail"],

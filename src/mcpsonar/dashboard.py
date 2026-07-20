@@ -201,6 +201,12 @@ _PAGE = r"""<!doctype html>
   .target,.spec{font-family:var(--mono);}
   .spec .unk{font-family:var(--sans);color:var(--degraded);}
   .detail{color:var(--down);}
+  .tlink{cursor:pointer;}
+  .tlink:hover{color:var(--accent-strong);}
+  .toollist{display:flex;flex-direction:column;gap:8px;max-height:54vh;overflow:auto;}
+  .toolitem{padding:10px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;}
+  .toolitem .tn{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent-strong);}
+  .toolitem .td{font-size:12.5px;color:var(--muted);margin-top:3px;}
   .acts{display:flex;gap:2px;flex:none;}
   .act{border:none;background:none;font:inherit;font-size:12.5px;cursor:pointer;color:var(--muted);
        padding:5px 9px;border-radius:7px;transition:all .12s;}
@@ -319,6 +325,15 @@ _PAGE = r"""<!doctype html>
   </div>
 </div>
 
+<div class="overlay" id="toolsOverlay">
+  <div class="modal">
+    <h2 id="toolsTitle">Tools</h2>
+    <p class="lead">The tools this server exposes right now (queried live via tools/list).</p>
+    <div id="toolsBody"><p class="muted">Loading…</p></div>
+    <div class="buttons"><button class="btn" onclick="closeTools()">Close</button></div>
+  </div>
+</div>
+
 <div class="overlay" id="importOverlay">
   <div class="modal">
     <h2>Import servers</h2>
@@ -412,7 +427,9 @@ async function refresh() {
     let spec = "—";
     if (ev && ev.spec_version){ spec=esc(ev.spec_version);
       if(!ev.spec_version_supported) spec+=' <span class="unk">unrecognized</span>'; }
-    const tools = ev ? (ev.tools_failed+"/"+ev.tools_checked) : "—";
+    const tAvail = ev ? ev.tools_available : "—";
+    const probed = ev && ev.tools_checked
+      ? ` · ${ev.tools_checked-ev.tools_failed}/${ev.tools_checked} probed ok` : "";
     const when = ev ? relTime(ev.checked_at) : "never";
     const detail = ev && ev.detail ? ` · <span class="detail">${esc(ev.detail)}</span>` : "";
     const paused = s.enabled ? "" : '<span class="paused">paused</span>';
@@ -429,10 +446,11 @@ async function refresh() {
         <div class="meta">
           <span class="target">${esc(s.target)}</span>
           <span class="spec">spec ${spec}</span>
-          <span>tools <b>${tools}</b></span>
+          <span class="tlink" onclick="openTools('${s.id}')">🔧 <b>${tAvail}</b> tools${probed}</span>
           <span>checked <b>${when}</b>${detail}</span>
         </div>
         <div class="acts">
+          <button class="act" onclick="openTools('${s.id}')">Tools</button>
           <button class="act" onclick="openHistory('${s.id}')">History</button>
           <button class="act" onclick="checkNow('${s.id}')">Check</button>
           <button class="act" onclick="editServer('${s.id}')">Edit</button>
@@ -566,6 +584,24 @@ function renderCharts(hist){
     </svg>
     <div class="clabel">Status timeline (oldest → newest)</div>
     <svg viewBox="0 0 ${W} 14" width="100%" style="display:block">${strip}</svg>`;
+}
+
+/* tools */
+function closeTools(){ $("toolsOverlay").classList.remove("open"); }
+async function openTools(id){
+  $("toolsTitle").textContent = "Tools · " + (SERVERS[id]||id);
+  $("toolsBody").innerHTML = '<p class="muted">Connecting to the server…</p>';
+  $("toolsOverlay").classList.add("open");
+  try {
+    const tools = await api("GET", "/api/servers/"+id+"/tools");
+    if (!tools.length){ $("toolsBody").innerHTML = '<p class="muted">This server exposes no tools.</p>'; return; }
+    $("toolsBody").innerHTML =
+      `<div class="muted" style="margin-bottom:10px">${tools.length} tool(s) exposed</div>` +
+      '<div class="toollist">' + tools.map(t =>
+        `<div class="toolitem"><div class="tn">${esc(t.name)}</div>` +
+        (t.description ? `<div class="td">${esc(t.description)}</div>` : '') + `</div>`).join("") +
+      '</div>';
+  } catch(e){ $("toolsBody").innerHTML = '<p class="detail">Could not list tools: '+esc(e.message)+'</p>'; }
 }
 
 /* import / export */

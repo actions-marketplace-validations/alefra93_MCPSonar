@@ -74,6 +74,9 @@ class CheckEvent(BaseModel):
     tools_failed: int = Field(
         default=0, ge=0, description="How many of the test-called tools failed."
     )
+    tools_available: int = Field(
+        default=0, ge=0, description="How many tools the server exposes (from tools/list)."
+    )
     spec_version: str | None = Field(
         default=None,
         description="MCP spec version the server declared during initialize "

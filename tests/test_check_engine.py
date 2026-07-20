@@ -71,6 +71,7 @@ async def test_up_no_tools(mock_server):
     assert evt.spec_version == "2025-11-25"
     assert evt.spec_version_supported is True
     assert evt.tools_checked == 0
+    assert evt.tools_available == 3  # mock exposes ping, echo, boom
     assert evt.latency_ms > 0
     assert evt.detail is None
 
