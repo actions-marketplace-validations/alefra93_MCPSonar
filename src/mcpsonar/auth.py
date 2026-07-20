@@ -163,22 +163,44 @@ _LOGIN_PAGE = r"""<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>mcpsonar · sign in</title>
 <style>
-  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f8fa;
-       color:#1f2328;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;}
-  .card{background:#fff;border:1px solid #d0d7de;border-radius:12px;padding:30px 28px;width:min(380px,92vw);
-        box-shadow:0 8px 30px rgba(20,28,45,.10);}
-  h1{font-size:20px;margin:0 0 2px;}
-  .sub{color:#57606a;font-size:13px;margin-bottom:20px;}
-  label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px;}
-  input{width:100%;padding:9px 11px;border:1px solid #d0d7de;border-radius:7px;font:inherit;box-sizing:border-box;}
-  button{width:100%;margin-top:18px;padding:10px;border:none;border-radius:7px;background:#1f6feb;color:#fff;
-         font:inherit;font-weight:600;cursor:pointer;}
-  button:hover{filter:brightness(1.05);}
-  .err{color:#cf222e;font-size:13px;min-height:18px;margin-top:10px;}
+  :root{
+    --bg:#f1f4f9; --surface:#ffffff; --surface-2:#f6f9fc; --border:#d2dbe8;
+    --text:#0e1a2b; --muted:#5b6b83; --accent:#0d9488; --accent-strong:#0f766e;
+    --accent-ink:#fff; --accent-soft:rgba(13,148,136,.10); --down:#dc2626;
+    --shadow:0 24px 70px rgba(14,26,43,.18);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#070c15; --surface:#0f1826; --surface-2:#131f30; --border:#2c3c54;
+      --text:#e7eefb; --muted:#93a3bd; --accent:#2dd4bf; --accent-strong:#5eead4;
+      --accent-ink:#04120f; --accent-soft:rgba(45,212,191,.12); --down:#f87171;
+      --shadow:0 28px 80px rgba(0,0,0,.6); }
+  }
+  *{box-sizing:border-box;}
+  body{font-family:var(--sans);background:
+       radial-gradient(1100px 520px at 50% -12%, var(--accent-soft), transparent 60%), var(--bg);
+       color:var(--text);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:34px 32px;
+        width:min(390px,94vw);box-shadow:var(--shadow);}
+  .logo{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:24px;margin-bottom:16px;
+        background:linear-gradient(150deg,var(--accent),var(--accent-strong));
+        box-shadow:0 8px 22px var(--accent-soft), inset 0 1px 0 rgba(255,255,255,.25);}
+  h1{font-size:21px;margin:0 0 2px;letter-spacing:-.02em;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px;}
+  label{display:block;font-size:12.5px;font-weight:600;margin:14px 0 5px;}
+  input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font:inherit;
+        background:var(--surface-2);color:var(--text);transition:border-color .12s,box-shadow .12s;}
+  input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  button{width:100%;margin-top:22px;padding:11px;border:none;border-radius:10px;
+         background:linear-gradient(150deg,var(--accent),var(--accent-strong));color:var(--accent-ink);
+         font:inherit;font-weight:650;cursor:pointer;transition:filter .12s;}
+  button:hover{filter:brightness(1.06);}
+  .err{color:var(--down);font-size:13px;min-height:18px;margin-top:12px;}
 </style></head>
 <body>
 <form class="card" onsubmit="submitForm(event)">
-  <h1>🛰️ mcpsonar</h1>
+  <div class="logo">🛰️</div>
+  <h1>mcpsonar</h1>
   <div class="sub" id="sub">Sign in</div>
   <label>Username</label><input id="u" autocomplete="username" autofocus>
   <label>Password</label><input id="p" type="password" autocomplete="current-password">
