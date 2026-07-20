@@ -1,0 +1,27 @@
+"""Validator registry package.
+
+Importing this package registers every known version validator as a side effect, so
+``get_validator("2025-11-25")`` works after a plain ``import mcpsonar.validators``.
+Register a new spec version by adding a module here and importing it below.
+"""
+
+from __future__ import annotations
+
+from .base import (
+    VALIDATOR_REGISTRY,
+    BaseValidator,
+    get_validator,
+    register,
+    run_minimal_common_validation,
+)
+
+# Import concrete validators for their registration side effects.
+from . import v2025_11_25  # noqa: F401  (registers V20251125Validator)
+
+__all__ = [
+    "VALIDATOR_REGISTRY",
+    "BaseValidator",
+    "get_validator",
+    "register",
+    "run_minimal_common_validation",
+]
