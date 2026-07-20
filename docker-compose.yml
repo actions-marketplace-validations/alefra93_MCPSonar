@@ -1,0 +1,21 @@
+# mcpsonar as a service.
+#   docker compose up -d
+#   open http://localhost:8675  →  add MCP servers from the UI (no config file needed)
+#   /metrics for Prometheus
+services:
+  mcpsonar:
+    build: .
+    image: mcpsonar:0.2.0
+    container_name: mcpsonar
+    ports:
+      - "8675:8675"
+    volumes:
+      - mcpsonar-data:/data          # SQLite DB persists here across restarts
+    # Optional: seed servers from a YAML file on first run. Create config.yaml first
+    # (cp config.example.yaml config.yaml), then uncomment both lines below:
+    #   - ./config.yaml:/config/config.yaml:ro
+    # command: ["run", "--host", "0.0.0.0", "--config", "/config/config.yaml"]
+    restart: unless-stopped
+
+volumes:
+  mcpsonar-data:
