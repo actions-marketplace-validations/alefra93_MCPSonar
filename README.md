@@ -142,12 +142,17 @@ never changes the status.
 
 ```bash
 pip install -e ".[dev]"
-pytest                                   # runs against a bundled mock MCP server
+pytest                                   # unit/integration suite (bundled mock, http + stdio)
+bash scripts/smoke_e2e.sh                # full end-to-end smoke against the running app
 
 # Try it against the mock manually:
 python scripts/mock_mcp_server.py        # shell 1
 python scripts/manual_check.py --tools ping   # shell 2
 ```
+
+`scripts/smoke_e2e.sh` starts the app + a mock MCP server + a webhook receiver and exercises
+auth, http/stdio checks, status/heartbeat, history, metrics, webhook delivery, export and CRUD
+— printing a PASS/FAIL summary (exit non-zero on any failure). Node/npx enables the stdio case.
 
 Adding support for a new MCP spec version = add one `validators/vYYYY_MM_DD.py` and register
 it; existing validators are never touched.
