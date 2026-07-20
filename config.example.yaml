@@ -1,0 +1,62 @@
+# mcpsonar configuration — one section per monitored MCP server.
+# Copy to config.yaml and edit, then: mcpsonar run --config config.yaml
+
+servers:
+  example-server:
+    # Endpoint of the MCP server.
+    url: "https://example.com/mcp"
+
+    # Transport used to reach it:
+    #   "http"  Streamable HTTP (>= 2025-03-26)   — needs `url`
+    #   "sse"   legacy HTTP+SSE (2024-11-05)      — needs `url`
+    #   "stdio" local process mcpsonar launches   — needs `command` (see stdio-example below)
+    transport: "http"
+
+    # Optional HTTP headers for http/sse — e.g. auth for a protected server:
+    # headers:
+    #   Authorization: "Bearer <token>"
+
+    # How often to run the health check, in seconds.
+    check_interval_seconds: 60
+
+    # Tools to actually *call* (not just list) to prove they respond.
+    # Each item is either a bare tool name (called with no arguments) or a
+    # {name, arguments} mapping. Provide representative arguments so an error is a
+    # real malfunction signal, not a "called it wrong" artifact.
+    # Leave empty to only verify handshake + tool listing.
+    tools_to_test:
+      - ping
+      - name: search
+        arguments: { query: "healthcheck" }
+
+    # Latency thresholds (milliseconds) driving up / degraded / down.
+    thresholds:
+      latency_degraded_ms: 2000
+      latency_down_ms: 10000
+
+    # Optional: forward each CheckEvent to external alerting/dashboard systems.
+    # Omit entirely to rely only on the built-in dashboard.
+    webhooks:
+      # Uptime Kuma push monitor (no "degraded" concept — it is mapped to up/down).
+      - type: uptime_kuma
+        push_url: "https://kuma.example.com/api/push/xyz"
+
+      # Generic webhook: POSTs the raw CheckEvent JSON.
+      # `on` filters which statuses fire it (default: down + degraded).
+      # NOTE: `on` is quoted because bare `on:` is a YAML 1.1 boolean. mcpsonar's
+      # config loader also normalizes this, but quoting keeps the file unambiguous.
+      - type: generic
+        url: "https://hooks.example.com/webhook"
+        "on": ["down", "degraded"]
+
+  # A local stdio MCP server that mcpsonar launches for each check.
+  stdio-example:
+    transport: "stdio"
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-everything"]
+    # env:
+    #   API_TOKEN: "..."
+    check_interval_seconds: 60
+    tools_to_test:
+      - name: echo
+        arguments: { message: "healthcheck" }

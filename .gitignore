@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+
+# Local config (users copy from config.example.yaml)
+config.yaml
+config.yml
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
