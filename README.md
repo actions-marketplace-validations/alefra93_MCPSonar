@@ -1,2 +1,164 @@
-# MCPSonar
-A fancy self-hosted health monitor for MCP servers 🛰️
+# MCPSonar 🛰️
+
+Lightweight, **protocol-aware** health checks for [MCP](https://modelcontextprotocol.io)
+(Model Context Protocol) servers.
+
+Generic uptime tools tell you a process is alive. mcpsonar understands MCP: it runs the
+`initialize` handshake, records the declared **spec version**, lists tools, optionally
+**test-calls** configured tools to prove they respond, and validates the server against
+**version-specific** rules — then emits one standardized event you can push anywhere.
+
+It's a small self-hosted **web app**: add, edit, pause and delete MCP servers from the
+browser (no config files, no restart), watch live status, and see **uptime + latency history
+graphs** — the Uptime-Kuma experience, but MCP-aware. Optional adapters push events to
+**Uptime Kuma**, **generic webhooks**, and **Prometheus** for alerting/long-term storage.
+
+## What it checks
+
+- Connection + `initialize` handshake succeed
+- Declared MCP **spec version** (and whether mcpsonar has a validator for it)
+- Tools are listed, and configured tools actually **respond** when called
+- Handshake **latency** against configurable thresholds
+- Per-version schema validation (unknown versions get minimal common validation — never a
+  false positive on rules we don't know)
+
+Each check produces a `CheckEvent`: `status` (up / degraded / down), `latency_ms`,
+`tools_checked` / `tools_failed`, `spec_version`, `spec_version_supported`, `detail`.
+
+## Run as a service (Docker)
+
+```bash
+docker compose up -d       # builds the image, starts the service, persists data in a volume
+```
+
+Open **http://localhost:8675**, create your admin account on first run, then click
+**+ Add server** and you're monitoring. The SQLite database lives in a named volume, so your
+servers, history and login survive restarts. Prometheus metrics are at `/metrics`.
+
+## Install & run (pip)
+
+```bash
+pip install mcpsonar          # or: pip install -e .   (from a clone)
+mcpsonar run                  # dashboard at http://127.0.0.1:8675, db at ./mcpsonar.db
+```
+
+No config file needed — add servers from the UI. `--db PATH` (or `MCPSONAR_DB`) sets the
+database location; `--retention-days N` controls how long history is kept (default 7).
+
+## Authentication
+
+The dashboard is protected by a single admin login. On first run the login page prompts you
+to **create the admin account**; after that, sign in with those credentials. Sessions are
+signed cookies (7-day expiry); passwords are stored PBKDF2-hashed. `/metrics` stays open so
+Prometheus can scrape it. Run `mcpsonar run --no-auth` to disable the login entirely — only
+do this on localhost or behind a trusted reverse proxy.
+
+## Managing servers
+
+Everything is done from the dashboard or the JSON API — no restart required:
+
+- **Add / Edit / Pause / Delete** a server; changes take effect immediately.
+- **Check now** to run an on-demand check.
+- **History** opens uptime % + latency/status graphs over a selectable window (1h / 6h / 24h).
+- **Export / Import** all servers as YAML (bulk setup, backups, moving between instances).
+
+### Transports
+
+- **http** — Streamable HTTP (`https://host/mcp`). Optional **auth headers** (e.g.
+  `Authorization: Bearer …`) for protected servers.
+- **sse** — legacy HTTP+SSE (`https://host/sse`), same header support.
+- **stdio** — a **local** MCP server that mcpsonar launches per check. Give it a `command`
+  (e.g. `npx`), `args` (e.g. `-y @modelcontextprotocol/server-everything`) and optional `env`.
+  The runtime must be available where mcpsonar runs (Node for `npx`, Python for `uvx`, …);
+  the default Docker image is Python-only, so stdio-via-npx needs the pip install or a custom
+  image. On Windows enter `npx` (bare) — it resolves `npx.cmd` via PATH.
+
+API: `GET/POST/PUT/DELETE /api/servers`, `POST /api/servers/{id}/check`,
+`GET /api/servers/{id}/history`, `GET /api/export`, `POST /api/import`, `GET /api/status`.
+
+## Seeding from YAML (optional)
+
+Prefer to start from a file? Pass one on first run — it seeds the DB only when it has no
+servers yet (see [`config.example.yaml`](config.example.yaml)):
+
+```bash
+mcpsonar run --config config.example.yaml
+```
+
+Config shape, one section per server:
+
+```yaml
+servers:
+  my-server:                     # http/sse server, optionally behind auth
+    url: "https://example.com/mcp"
+    transport: "http"            # "http" (Streamable HTTP), "sse" (legacy), or "stdio"
+    headers:                     # optional — auth for a protected server
+      Authorization: "Bearer <token>"
+    check_interval_seconds: 60
+    tools_to_test:               # bare name, or {name, arguments}
+      - ping
+      - name: search
+        arguments: { query: "healthcheck" }
+    thresholds:
+      latency_degraded_ms: 2000
+      latency_down_ms: 10000
+    webhooks:                    # optional — all outputs are opt-in
+      - type: uptime_kuma
+        push_url: "https://kuma.example.com/api/push/xyz"
+      - type: generic
+        url: "https://hooks.example.com/webhook"
+        on: ["down", "degraded"]
+
+  local-server:                  # stdio server mcpsonar launches per check
+    transport: "stdio"
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-everything"]
+    # env: { API_TOKEN: "..." }
+    tools_to_test:
+      - name: echo
+        arguments: { message: "healthcheck" }
+```
+
+### Outputs (adapters)
+
+- **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
+  detail in the message (avoids false down-alarms); `down` maps to down.
+- **Generic webhook** — POSTs the raw `CheckEvent` JSON; `on` filters which statuses fire it;
+  retries up to 3× with exponential backoff.
+- **Prometheus** — scrape `GET /metrics` (`mcpsonar_up`, `mcpsonar_status_code`,
+  `mcpsonar_latency_ms`, `mcpsonar_tools_failed`, `mcpsonar_spec_version_supported`, …).
+
+## Status thresholds
+
+- **down** — connect/handshake failed, or latency ≥ `latency_down_ms`, or *all* tested tools failed
+- **degraded** — latency ≥ `latency_degraded_ms`, or *some* tested tools failed, or known-spec
+  validation issues
+- **up** — none of the above
+
+An unrecognized spec version is **informational only** (`spec_version_supported: false`); it
+never changes the status.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest                                   # runs against a bundled mock MCP server
+
+# Try it against the mock manually:
+python scripts/mock_mcp_server.py        # shell 1
+python scripts/manual_check.py --tools ping   # shell 2
+```
+
+Adding support for a new MCP spec version = add one `validators/vYYYY_MM_DD.py` and register
+it; existing validators are never touched.
+
+## Scope (v0.4)
+
+Self-service web UI with **admin login**, SQLite persistence, uptime/latency history with
+configurable retention, YAML import/export, **http + sse + stdio** transports, and **auth
+headers** for protected servers. Single admin account (no multi-user roles yet); ExeWatch
+adapter not yet included.
+
+## License
+
+MIT © Alessandro Fraleoni
