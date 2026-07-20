@@ -169,26 +169,18 @@ _PAGE = r"""<!doctype html>
   .card.up::before{background:var(--up);} .card.degraded::before{background:var(--degraded);}
   .card.down::before{background:var(--down);} .card.pending::before{background:var(--faint);}
   .card:hover{border-color:var(--border-strong);transform:translateY(-1px);box-shadow:var(--shadow-lg);}
-  .card .top{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;}
-  .identity{display:flex;align-items:center;gap:11px;min-width:0;flex:1 1 220px;}
-  .sdot{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 0 4px var(--accent-soft);}
+  /* card = 3 stacked rows: header (name/status), heartbeat, footer (meta/actions) */
+  .chead{display:flex;align-items:center;gap:10px;}
+  .sdot{width:10px;height:10px;border-radius:50%;flex:none;}
   .sdot.up{background:var(--up);box-shadow:0 0 0 4px color-mix(in srgb,var(--up) 22%,transparent);}
   .sdot.degraded{background:var(--degraded);box-shadow:0 0 0 4px color-mix(in srgb,var(--degraded) 22%,transparent);}
   .sdot.down{background:var(--down);box-shadow:0 0 0 4px color-mix(in srgb,var(--down) 22%,transparent);}
-  .sdot.pending{background:var(--faint);box-shadow:none;}
-  .idtext{min-width:0;}
-  .name{font-weight:650;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .name .paused{color:var(--faint);font-weight:500;font-size:12px;margin-left:6px;}
-  .target{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;
-       text-overflow:ellipsis;margin-top:2px;}
+  .sdot.pending{background:var(--faint);}
+  .cname{font-weight:650;font-size:14.5px;flex:1 1 auto;min-width:0;white-space:nowrap;
+       overflow:hidden;text-overflow:ellipsis;}
+  .cname .paused{color:var(--faint);font-weight:500;font-size:12px;margin-left:6px;}
   .tport{font-family:var(--mono);font-size:10px;color:var(--accent-strong);background:var(--accent-soft);
-       padding:1px 6px;border-radius:5px;margin-right:6px;text-transform:uppercase;letter-spacing:.03em;}
-
-  .heartbeat{display:flex;gap:2px;align-items:flex-end;justify-content:flex-end;height:26px;
-       flex:1 1 100px;min-width:0;overflow:hidden;}
-  .hb{width:5px;height:24px;border-radius:2px;flex:none;}
-  .hb.empty{background:var(--border);opacity:.7;height:12px;align-self:center;}
-
+       padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em;flex:none;}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px 4px 9px;border-radius:999px;
        font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;flex:none;}
   .pill .d{width:6px;height:6px;border-radius:50%;background:currentColor;}
@@ -196,21 +188,26 @@ _PAGE = r"""<!doctype html>
   .pill.degraded{color:var(--degraded);background:color-mix(in srgb,var(--degraded) 15%,transparent);}
   .pill.down{color:var(--down);background:color-mix(in srgb,var(--down) 13%,transparent);}
   .pill.pending{color:var(--pending);background:color-mix(in srgb,var(--pending) 14%,transparent);}
-  .lat{font-weight:700;font-size:14px;min-width:64px;text-align:right;}
+  .lat{font-weight:700;font-size:14px;flex:none;min-width:56px;text-align:right;}
 
-  .acts{display:flex;gap:2px;flex:none;flex-wrap:wrap;justify-content:flex-end;margin-left:auto;}
-  .act{border:none;background:none;font:inherit;font-size:12.5px;cursor:pointer;color:var(--muted);
-       padding:5px 8px;border-radius:7px;transition:all .12s;}
-  .act:hover{background:var(--surface-2);color:var(--accent-strong);}
-  .act.danger:hover{color:var(--down);background:color-mix(in srgb,var(--down) 10%,transparent);}
-  .act:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .heartbeat{display:flex;gap:2px;align-items:center;height:30px;width:100%;margin-top:12px;overflow:hidden;}
+  .hb{flex:1 1 0;min-width:2px;height:26px;border-radius:2px;}
+  .hb.empty{background:var(--border);opacity:.55;height:13px;}
 
-  .sub2{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:11px;padding-top:11px;
-       border-top:1px dashed var(--border);font-size:12px;color:var(--muted);}
-  .sub2 b{color:var(--text);font-weight:600;}
-  .spec{font-family:var(--mono);}
+  .cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;
+       margin-top:12px;padding-top:11px;border-top:1px dashed var(--border);}
+  .meta{display:flex;flex-wrap:wrap;gap:4px 15px;font-size:12px;color:var(--muted);min-width:0;}
+  .meta b{color:var(--text);font-weight:600;}
+  .target,.spec{font-family:var(--mono);}
   .spec .unk{font-family:var(--sans);color:var(--degraded);}
   .detail{color:var(--down);}
+  .acts{display:flex;gap:2px;flex:none;}
+  .act{border:none;background:none;font:inherit;font-size:12.5px;cursor:pointer;color:var(--muted);
+       padding:5px 9px;border-radius:7px;transition:all .12s;}
+  .act:hover{background:var(--surface-2);color:var(--accent-strong);}
+  .act.danger{color:var(--down);opacity:.8;}
+  .act.danger:hover{background:color-mix(in srgb,var(--down) 12%,transparent);opacity:1;}
+  .act:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
   .empty{background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--r);
        padding:44px 20px;text-align:center;color:var(--muted);}
   .empty .big{font-size:34px;margin-bottom:8px;}
@@ -420,17 +417,21 @@ async function refresh() {
     const detail = ev && ev.detail ? ` · <span class="detail">${esc(ev.detail)}</span>` : "";
     const paused = s.enabled ? "" : '<span class="paused">paused</span>';
     return `<div class="card ${status}">
-      <div class="top">
-        <div class="identity">
-          <span class="sdot ${status}"></span>
-          <div class="idtext">
-            <div class="name">${esc(s.name)}${paused}</div>
-            <div class="target"><span class="tport">${esc(s.transport)}</span>${esc(s.target)}</div>
-          </div>
-        </div>
-        ${heartbeat(s.recent)}
+      <div class="chead">
+        <span class="sdot ${status}"></span>
+        <span class="cname">${esc(s.name)}${paused}</span>
+        <span class="tport">${esc(s.transport)}</span>
         ${pill(status)}
-        <div class="lat num">${latency}</div>
+        <span class="lat num">${latency}</span>
+      </div>
+      ${heartbeat(s.recent)}
+      <div class="cfoot">
+        <div class="meta">
+          <span class="target">${esc(s.target)}</span>
+          <span class="spec">spec ${spec}</span>
+          <span>tools <b>${tools}</b></span>
+          <span>checked <b>${when}</b>${detail}</span>
+        </div>
         <div class="acts">
           <button class="act" onclick="openHistory('${s.id}')">History</button>
           <button class="act" onclick="checkNow('${s.id}')">Check</button>
@@ -438,11 +439,6 @@ async function refresh() {
           <button class="act" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
           <button class="act danger" onclick="del('${s.id}')">Delete</button>
         </div>
-      </div>
-      <div class="sub2">
-        <span class="spec">spec ${spec}</span>
-        <span>tools <b>${tools}</b></span>
-        <span>checked <b>${when}</b>${detail}</span>
       </div>
     </div>`;
   }).join("");
