@@ -9,6 +9,8 @@ protocol failure becomes a ``down`` event, so the scheduler can treat every serv
 from __future__ import annotations
 
 import contextlib
+import functools
+import ssl
 from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter
@@ -19,12 +21,34 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import InitializeResult, Tool
 
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
 from .tooldefs import normalize_tool
 from .validators import get_validator, run_minimal_common_validation
+
+
+@functools.cache
+def _ssl_context() -> ssl.SSLContext:
+    """One TLS context for every check. Building one loads the CA bundle (~200 ms of blocking
+    CPU); doing that per check stalls the event loop and inflates the latency measured for
+    every *other* server being checked at the same time."""
+    return httpx.create_ssl_context()
+
+
+def _http_client(
+    headers: dict[str, str] | None = None,
+    timeout: httpx.Timeout | None = None,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    """Same defaults as the SDK's ``create_mcp_http_client``, with the shared TLS context."""
+    return httpx.AsyncClient(
+        follow_redirects=True,
+        headers=headers,
+        timeout=timeout if timeout is not None else httpx.Timeout(30.0, read=300.0),
+        auth=auth,
+        verify=_ssl_context(),
+    )
 
 
 @contextlib.asynccontextmanager
@@ -40,7 +64,9 @@ async def _open_session(cfg: ServerConfig, timeout_s: float) -> AsyncIterator[Cl
     """
     headers = cfg.headers or None
     if cfg.transport == TransportType.SSE:
-        async with sse_client(cfg.url, headers=headers, timeout=timeout_s) as (read, write):
+        async with sse_client(
+            cfg.url, headers=headers, timeout=timeout_s, httpx_client_factory=_http_client
+        ) as (read, write):
             async with ClientSession(read, write) as session:
                 yield session
     elif cfg.transport == TransportType.STDIO:
@@ -52,7 +78,7 @@ async def _open_session(cfg: ServerConfig, timeout_s: float) -> AsyncIterator[Cl
                 yield session
     else:  # TransportType.HTTP -> Streamable HTTP
         timeout = httpx.Timeout(timeout_s)
-        async with create_mcp_http_client(headers=headers, timeout=timeout) as http_client:
+        async with _http_client(headers=headers, timeout=timeout) as http_client:
             async with streamable_http_client(cfg.url, http_client=http_client) as (
                 read,
                 write,
