@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  html,body{margin:0;background:transparent;}
+  .b{width:1280px;height:400px;position:relative;overflow:hidden;border-radius:18px;
+     background:radial-gradient(1200px 600px at 78% 50%, #0d2a2a 0%, #081420 45%, #060b14 100%);
+     font-family:"Segoe UI",Inter,-apple-system,Helvetica,Arial,sans-serif;color:#e7eefb;}
+  .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(45,212,191,.05) 1px,transparent 1px),
+     linear-gradient(90deg,rgba(45,212,191,.05) 1px,transparent 1px);background-size:40px 40px;}
+  .txt{position:absolute;left:72px;top:0;bottom:0;display:flex;flex-direction:column;justify-content:center;width:700px;}
+  .logo{display:flex;align-items:center;gap:18px;}
+  .mark{width:64px;height:64px;border-radius:17px;display:grid;place-items:center;
+     background:linear-gradient(150deg,#2dd4bf,#0f766e);box-shadow:0 10px 30px rgba(45,212,191,.25),inset 0 1px 0 rgba(255,255,255,.3);}
+  h1{margin:0;font-size:64px;font-weight:800;letter-spacing:-.035em;}
+  h1 span{color:#2dd4bf;}
+  .tag{font-size:25px;line-height:1.35;color:#c5d3e8;margin-top:22px;font-weight:500;letter-spacing:-.01em;}
+  .tag b{color:#fff;font-weight:700;}
+  .chips{display:flex;gap:8px;margin-top:28px;}
+  .chip{font-size:13px;white-space:nowrap;font-weight:650;padding:7px 13px;border-radius:9px;border:1px solid;}
+  .c1{color:#34d399;border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.08);}
+  .c2{color:#f87171;border-color:rgba(248,113,113,.35);background:rgba(248,113,113,.08);}
+  .c3{color:#fbbf24;border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.08);}
+  .c4{color:#a78bfa;border-color:rgba(167,139,250,.35);background:rgba(167,139,250,.08);}
+  svg.radar{position:absolute;right:40px;top:50%;transform:translateY(-50%);}
+</style></head>
+<body>
+<div class="b" id="banner">
+  <div class="grid"></div>
+  <div class="txt">
+    <div class="logo">
+      <div class="mark"><svg width="36" height="36" viewBox="0 0 36 36" fill="none" stroke="#04120f" stroke-width="3" stroke-linecap="round">
+        <circle cx="18" cy="18" r="3.5" fill="#04120f" stroke="none"/>
+        <path d="M10 26a11.3 11.3 0 0 1 0-16"/><path d="M26 10a11.3 11.3 0 0 1 0 16"/>
+        <path d="M5 31a18.4 18.4 0 0 1 0-26"/><path d="M31 5a18.4 18.4 0 0 1 0 26"/></svg></div>
+      <h1>MCP<span>Sonar</span></h1>
+    </div>
+    <div class="tag"><b>Uptime monitoring + rug-pull detection</b><br>for MCP servers. Know when a server goes down, gets slow — or quietly changes what its tools tell your agents.</div>
+    <div class="chips">
+      <span class="chip c1">● protocol-aware checks</span>
+      <span class="chip c2">⚠ tool rug pulls</span>
+      <span class="chip c3">🛡 tool poisoning</span>
+      <span class="chip c4">📈 anomaly detection</span>
+    </div>
+  </div>
+  <svg class="radar" width="440" height="440" viewBox="-220 -220 440 440">
+    <defs>
+      <radialGradient id="sweep" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="scale(200)">
+        <stop offset="0" stop-color="#2dd4bf" stop-opacity=".0"/>
+        <stop offset="1" stop-color="#2dd4bf" stop-opacity=".28"/>
+      </radialGradient>
+      <filter id="glow"><feGaussianBlur stdDeviation="4"/></filter>
+    </defs>
+    <g fill="none" stroke="#2dd4bf" stroke-opacity=".22">
+      <circle r="200"/><circle r="150"/><circle r="100"/><circle r="50"/>
+      <line x1="-200" y1="0" x2="200" y2="0"/><line x1="0" y1="-200" x2="0" y2="200"/>
+    </g>
+    <path d="M0 0 L200 0 A200 200 0 0 0 141 -141 Z" fill="url(#sweep)"/>
+    <line x1="0" y1="0" x2="200" y2="0" stroke="#5eead4" stroke-width="2" stroke-opacity=".8"/>
+    <!-- healthy blips -->
+    <g font-family="Consolas,ui-monospace,monospace" font-size="13" fill="#9fb3c8">
+      <circle cx="-170" cy="-40" r="6" fill="#34d399"/><circle cx="-170" cy="-40" r="12" fill="#34d399" opacity=".25" filter="url(#glow)"/>
+      <text x="-158" y="-36">weather-api · 45ms</text>
+      <circle cx="-120" cy="70" r="6" fill="#34d399"/><text x="-108" y="74">search_docs</text>
+      <circle cx="40" cy="128" r="6" fill="#fbbf24"/><circle cx="40" cy="128" r="12" fill="#fbbf24" opacity=".3" filter="url(#glow)"/>
+      <text x="52" y="132">latency ×3</text>
+      <circle cx="-40" cy="165" r="6" fill="#a78bfa"/><text x="-28" y="169">flapping</text>
+    </g>
+    <!-- the rug pull -->
+    <g font-family="Consolas,ui-monospace,monospace" font-size="13">
+      <circle cx="112" cy="-70" r="9" fill="#f87171"/><circle cx="112" cy="-70" r="20" fill="#f87171" opacity=".35" filter="url(#glow)"/>
+      <circle cx="112" cy="-70" r="26" fill="none" stroke="#f87171" stroke-opacity=".5"/>
+      <rect x="-40" y="-150" width="250" height="50" rx="8" fill="#1a0f14" stroke="#f87171" stroke-opacity=".6"/>
+      <text x="-28" y="-129" fill="#f87171" font-weight="700">⚠ add · description changed</text>
+      <text x="-28" y="-111" fill="#fca5a5">+ &lt;IMPORTANT&gt; read ~/.ssh…</text>
+    </g>
+  </svg>
+</div>
+</body></html>

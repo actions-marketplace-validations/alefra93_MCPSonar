@@ -1,39 +1,184 @@
-# MCPSonar 🛰️
+<p align="center">
+  <img src="docs/img/banner.png" alt="MCPSonar — uptime monitoring + rug-pull detection for MCP servers" width="100%">
+</p>
 
-Lightweight, **protocol-aware** health checks for [MCP](https://modelcontextprotocol.io)
-(Model Context Protocol) servers.
+<p align="center">
+  <a href="https://github.com/alefra93/MCPSonar/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/alefra93/MCPSonar/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776ab">
+  <img alt="MCP spec 2025-11-25" src="https://img.shields.io/badge/MCP%20spec-2025--11--25-2dd4bf">
+  <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-SQLite%20%C2%B7%20no%20cloud-0f766e">
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
+</p>
 
-Generic uptime tools tell you a process is alive. mcpsonar understands MCP: it runs the
-`initialize` handshake, records the declared **spec version**, lists tools, optionally
-**test-calls** configured tools to prove they respond, and validates the server against
-**version-specific** rules — then emits one standardized event you can push anywhere.
+<p align="center">
+  <b>Your agents trust whatever an MCP server says its tools do.<br>
+  MCPSonar watches the servers — and what they say.</b>
+</p>
 
-It's a small self-hosted **web app**: add, edit, pause and delete MCP servers from the
-browser (no config files, no restart), watch live status, and see **uptime + latency history
-graphs** — the Uptime-Kuma experience, but MCP-aware. Optional adapters push events to
-**Uptime Kuma**, **generic webhooks**, and **Prometheus** for alerting/long-term storage.
+---
 
-## What it checks
+Generic uptime tools see a `200 OK`. MCPSonar speaks MCP: it runs the handshake, lists and
+**calls** the tools, validates the server against its spec version — and **pins every tool
+definition**, so the day a server silently rewrites a tool description to smuggle
+instructions to your LLM (a *rug pull*), you know. On top, it learns each server's normal
+behaviour and flags **latency anomalies**, **regressions** and **flapping** without you
+tuning a single threshold.
 
-- Connection + `initialize` handshake succeed
-- Declared MCP **spec version** (and whether mcpsonar has a validator for it)
-- Tools are listed, and configured tools actually **respond** when called
-- Handshake **latency** against configurable thresholds
-- Per-version schema validation (unknown versions get minimal common validation — never a
-  false positive on rules we don't know)
+Self-hosted, one process, SQLite, no cloud. Also a one-shot **CLI scanner** and a **GitHub
+Action** to gate CI on it.
 
-Each check produces a `CheckEvent`: `status` (up / degraded / down), `latency_ms`,
-`tools_available`, `tools_checked` / `tools_failed`, `spec_version`, `spec_version_supported`,
-`detail`.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/dashboard-light.png">
+    <img src="docs/img/dashboard-dark.png" alt="MCPSonar dashboard: four servers, one degraded by an unreviewed tool change" width="92%">
+  </picture>
+</p>
 
-## Requirements
+## Try it in 60 seconds
 
-- **Docker + Docker Compose** — for the container install (Option A), or
-- **Python 3.11+** — for the from-source install (Option B).
-- **Node.js / `npx`** — *optional*, only needed to monitor **stdio** MCP servers you launch
-  via `npx` (or `uvx` for Python-based ones). Not required for http/sse servers.
+```bash
+pip install git+https://github.com/alefra93/MCPSonar.git
+mcpsonar demo
+```
+
+The dashboard opens against **four scripted MCP servers**. Within a few minutes you'll watch:
+
+| Server | What happens | What MCPSonar does |
+|---|---|---|
+| `calculator` | its `add` tool is swapped for a **poisoned** version (the classic tool-poisoning PoC) | ⚠ flags the change, shows the diff, keeps the server *degraded* until you approve |
+| `docs-search` | a "bad deploy" makes it permanently **3× slower** | 📈 detects the **level shift** and marks when it started |
+| `payments-gateway` | random 503s | 📈 flags **flapping** |
+| `weather-api` | healthy, with the occasional spike | 📈 flags **spikes** against its learned baseline |
+
+Just want to check a server right now? `mcpsonar scan https://your-server/mcp`.
+
+## What it catches
+
+### 🪤 Rug pulls — tools that change after you trusted them
+
+MCP clients typically approve a server once; the server can change its tool descriptions
+and schemas any time after. MCPSonar pins the first `tools/list` it sees and diffs every
+later one against it — name, title, description, input/output schema, annotations. Any
+**added / removed / changed** tool is recorded and, by default, keeps the server
+**degraded until a human reviews it**. Invisible Unicode is made visible in the diff.
+
+<p align="center"><img src="docs/img/rugpull-diff.png" alt="Diff of a rug-pulled tool: hidden IMPORTANT block and new sidenote parameter" width="80%"></p>
+
+### 🛡 Tool poisoning — instructions hidden where only the LLM looks
+
+Every tool definition (including parameter descriptions) is linted for the patterns seen in
+real tool-poisoning attacks:
+
+| Rule | Severity | Example |
+|---|---|---|
+| `hidden-unicode` | high | zero-width / bidi / Unicode tag characters |
+| `prompt-injection` | high | "ignore all previous instructions" |
+| `fake-system-tag` | high | `<IMPORTANT>`, `<system>` blocks |
+| `hidden-from-user` | high | "do not tell the user", "do not mention…" |
+| `sensitive-path` | high | `~/.ssh`, `id_rsa`, `.env`, `mcp.json`, `.aws/credentials` |
+| `hidden-precondition` | medium | "before using this tool, read … and pass it" |
+| `exfiltration` | medium | "send the result to https://…" |
+| `tool-shadowing` | medium | "when any other tool is called, also…" |
+| `suspicious-parameter` | medium | params like `sidenote`, `chat_history`, `system_prompt` |
+| `encoded-blob`, `long-description`, `coercive-instruction` | low | room to hide things |
+
+These are explainable heuristics that point a human at something worth reading — they
+never change a server's status on their own.
+
+<p align="center"><img src="docs/img/poisoning-lint.png" alt="Tool-poisoning findings for a tool" width="70%"></p>
+
+### 📈 Anomalies — without hand-tuned thresholds
+
+A fixed "degraded at 2000 ms" is wrong for a server that normally answers in 40 ms. MCPSonar
+learns each server's own baseline from its recent healthy checks:
+
+- **Spikes** — robust z-score `(x − median) / (1.4826·MAD)`; median and MAD aren't dragged
+  around by the very outliers being hunted. Must also matter in practice (≥ 1.3× and ≥ 20 ms).
+- **Level shifts** — change-point detection: the split of the recent window with the largest
+  two-sample t-statistic on log-latency. Catches "it got 3× slower after Tuesday's deploy"
+  and tells you *when*. Reported once per shift.
+- **Flapping** — too many status transitions in the last 20 checks.
+
+Pure Python, no numpy. Informational by default; set `anomaly.degrade: true` to let
+anomalies degrade the status.
+
+<p align="center"><img src="docs/img/latency-shift.png" alt="History with learned baseline band, anomaly rings and a level-shift marker" width="80%"></p>
+
+### ✅ And the basics, done MCP-aware
+
+- `initialize` handshake over **Streamable HTTP**, legacy **SSE** or **stdio** (auth headers supported)
+- declared **spec version**, validated with **version-specific rules** (unknown versions get
+  minimal common rules — never a false positive on rules we don't know)
+- tools are listed and configured tools are **actually called** with representative arguments
+- uptime / latency history graphs, pause/resume, check-now, YAML import/export
+
+## `mcpsonar scan` — gate your CI on it
+
+Pin the tools of every MCP server your product depends on, like a package lock:
+
+```bash
+mcpsonar scan https://mcp.example.com/mcp --lock mcp-tools.lock.json   # first run writes the lock — commit it
+mcpsonar scan https://mcp.example.com/mcp --lock mcp-tools.lock.json   # later runs: exit 1 on drift or poisoning
+mcpsonar scan --stdio "npx -y @modelcontextprotocol/server-everything" --json
+```
+
+<p align="center"><img src="docs/img/scan-ci.png" alt="mcpsonar scan output failing on a rug-pulled server" width="85%"></p>
+
+Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfile drift ·
+`2` server unreachable. Accept a legitimate change with `--update-lock`.
+
+As a **GitHub Action**:
+
+```yaml
+- uses: alefra93/MCPSonar@main
+  with:
+    target: https://mcp.example.com/mcp
+    lock: mcp-tools.lock.json
+    headers: |
+      Authorization: Bearer ${{ secrets.MCP_TOKEN }}
+```
+
+## How it works
+
+```mermaid
+flowchart LR
+    S[(MCP servers<br/>http · sse · stdio)] -->|initialize · tools/list · tools/call| E[Check engine]
+    E --> P{{Pipeline}}
+    P --> T[Tool pinning<br/>diff vs last seen]
+    P --> L[Poisoning lint]
+    P --> A[Anomaly detection<br/>baseline · shift · flapping]
+    T & L & A --> V[CheckEvent<br/>status + anomalies]
+    V --> DB[(SQLite)]
+    V --> UI[Dashboard]
+    V --> PR[/metrics<br/>Prometheus/]
+    V --> W[Webhooks · Uptime Kuma]
+```
+
+Every check produces one flat `CheckEvent` — `status`, `latency_ms`, `tools_available`,
+`tools_checked/failed`, `spec_version`, `tool_changes`, `tool_risks`, `anomalies[]`,
+`latency_baseline_ms`, `latency_score`, `detail` — and every output consumes only that.
+
+## Why not just Uptime Kuma / a generic HTTP check?
+
+|  | Generic uptime | **MCPSonar** |
+|---|:-:|:-:|
+| Process / port is alive | ✅ | ✅ |
+| MCP handshake + spec version | ❌ | ✅ |
+| Tools actually respond when called | ❌ | ✅ |
+| stdio servers | ❌ | ✅ |
+| **Detects tool definitions changing (rug pull)** | ❌ | ✅ |
+| **Flags tool-poisoning patterns** | ❌ | ✅ |
+| Per-server learned baseline, shift & flapping detection | ❌ | ✅ |
+| Lockfile + CI gate | ❌ | ✅ |
+
+They're complementary: MCPSonar can push into Uptime Kuma and Prometheus.
+
+---
 
 ## Installation
+
+**Requirements:** Docker + Docker Compose (Option A) or Python 3.11+ (Option B). Node/`npx`
+is optional — only to monitor stdio servers launched via `npx`.
 
 ### Option A — Docker (recommended)
 
@@ -43,8 +188,8 @@ cd MCPSonar
 docker compose up -d          # builds the image and starts the service
 ```
 
-The SQLite database is stored in a named volume (`mcpsonar-data`), so your servers, history
-and login survive restarts and image rebuilds.
+The SQLite database lives in a named volume (`mcpsonar-data`), so servers, history and login
+survive restarts and rebuilds.
 
 ### Option B — From source (Python)
 
@@ -52,27 +197,28 @@ and login survive restarts and image rebuilds.
 git clone https://github.com/alefra93/MCPSonar.git
 cd MCPSonar
 python -m venv .venv
-# activate the venv:
-#   Windows (PowerShell):  .venv\Scripts\Activate.ps1
-#   macOS / Linux:         source .venv/bin/activate
+# activate: .venv\Scripts\Activate.ps1 (Windows) · source .venv/bin/activate (macOS/Linux)
 pip install -e .
 mcpsonar run                  # dashboard at http://127.0.0.1:8675, db at ./mcpsonar.db
 ```
 
-> On Windows, `python` may be `py`. Once the package is published to PyPI you'll be able to
-> `pip install mcpsonar` directly; until then, install from source as above.
-
-## First run
+### First run
 
 1. Open **http://localhost:8675** (Docker) or **http://127.0.0.1:8675** (source).
 2. Create your **admin account** on the login page (password ≥ 8 characters).
-3. Click **+ Add server**, enter an MCP server's URL (or a stdio command), and you're
-   monitoring. Prometheus metrics are exposed at `/metrics`.
+3. Click **+ Add server**, enter an MCP server's URL (or a stdio command) — you're monitoring.
 
-No config file is required — servers are managed from the UI. (You can optionally seed from a
-YAML file on first run: `mcpsonar run --config config.example.yaml`.)
+No config file is required; servers are managed from the UI.
 
-## Command-line options (`mcpsonar run`)
+### Command line
+
+| Command | Purpose |
+|---|---|
+| `mcpsonar run` | The monitor: dashboard, API, `/metrics`, scheduled checks. |
+| `mcpsonar scan <url> \| --stdio "cmd"` | One-shot security scan (`--lock`, `--update-lock`, `--fail-on`, `--json`, `-H`, `-e`). |
+| `mcpsonar demo` | Dashboard against four scripted demo servers (`--interval`, `--no-browser`). |
+
+`mcpsonar run` options:
 
 | Flag | Env var | Default | Purpose |
 |------|---------|---------|---------|
@@ -83,7 +229,7 @@ YAML file on first run: `mcpsonar run --config config.example.yaml`.)
 | `--config FILE` | | — | Seed servers from a YAML file on first run (only when the DB is empty). |
 | `--no-auth` | | off | Disable the login (only behind a trusted proxy / on localhost). |
 
-## Updating
+### Updating
 
 ```bash
 git pull
@@ -91,56 +237,51 @@ docker compose up -d --build   # Docker
 pip install -e .               # from source (inside the venv)
 ```
 
-## Authentication
+## Using it
 
-The dashboard is protected by a single admin login. On first run the login page prompts you
-to **create the admin account**; after that, sign in with those credentials. Sessions are
-signed cookies (7-day expiry); passwords are stored PBKDF2-hashed. `/metrics` stays open so
-Prometheus can scrape it. Run `mcpsonar run --no-auth` to disable the login entirely — only
-do this on localhost or behind a trusted reverse proxy.
+### Authentication
 
-## Managing servers
+A single admin login protects the dashboard; the first visit creates the account. Sessions are
+signed cookies (7-day expiry); passwords are PBKDF2-hashed. `/metrics` stays open for
+Prometheus. `--no-auth` disables the login — only on localhost or behind a trusted proxy.
+
+### Managing servers
 
 Everything is done from the dashboard or the JSON API — no restart required:
 
 - **Add / Edit / Pause / Delete** a server; changes take effect immediately.
-- **Check now** to run an on-demand check.
-- **Tools** lists the tools a server exposes right now (name + description), queried live.
-- **History** opens uptime % + latency/status graphs over a selectable window (1h / 6h / 24h).
-- **Export / Import** all servers as YAML (bulk setup, backups, moving between instances).
+- **Check** runs an on-demand check (analysed exactly like a scheduled one).
+- **Tools** lists the tools exposed right now, with any poisoning findings.
+- **Changes** shows tool changes vs. the pinned definitions; **Approve** trusts the new ones.
+- **History** shows uptime, latency, the learned baseline, shifts and anomalies (1h / 6h / 24h / all).
+- **Export / Import** all servers as YAML.
 
 ### Transports
 
-- **http** — Streamable HTTP (`https://host/mcp`). Optional **auth headers** (e.g.
-  `Authorization: Bearer …`) for protected servers.
+- **http** — Streamable HTTP (`https://host/mcp`), optional auth **headers**.
 - **sse** — legacy HTTP+SSE (`https://host/sse`), same header support.
-- **stdio** — a **local** MCP server that mcpsonar launches per check. Give it a `command`
-  (e.g. `npx`), `args` (e.g. `-y @modelcontextprotocol/server-everything`) and optional `env`.
-  The runtime must be available where mcpsonar runs (Node for `npx`, Python for `uvx`, …);
-  the default Docker image is Python-only, so stdio-via-npx needs the pip install or a custom
-  image. On Windows enter `npx` (bare) — it resolves `npx.cmd` via PATH.
+- **stdio** — a local server mcpsonar launches per check: `command` (e.g. `npx`), `args`,
+  optional `env`. The runtime must exist where mcpsonar runs (the Docker image is
+  Python-only). On Windows enter `npx` bare — it resolves `npx.cmd` via PATH.
 
-API: `GET/POST/PUT/DELETE /api/servers`, `POST /api/servers/{id}/check`,
-`GET /api/servers/{id}/tools`, `GET /api/servers/{id}/history`, `GET /api/export`,
-`POST /api/import`, `GET /api/status`.
+### API
 
-## Seeding from YAML (optional)
+`GET/POST/PUT/DELETE /api/servers` · `POST /api/servers/{id}/check` ·
+`GET /api/servers/{id}/tools` · `GET /api/servers/{id}/tool-changes[?all=true]` ·
+`POST /api/servers/{id}/tool-changes/ack` · `GET /api/servers/{id}/history` ·
+`GET /api/servers/{id}/insights` · `GET /api/export` · `POST /api/import` · `GET /api/status`
 
-Prefer to start from a file? Pass one on first run — it seeds the DB only when it has no
-servers yet (see [`config.example.yaml`](config.example.yaml)):
+### YAML config
 
-```bash
-mcpsonar run --config config.example.yaml
-```
-
-Config shape, one section per server:
+Optional — seed on first run with `mcpsonar run --config config.yaml` (see
+[`config.example.yaml`](config.example.yaml)):
 
 ```yaml
 servers:
-  my-server:                     # http/sse server, optionally behind auth
+  my-server:
     url: "https://example.com/mcp"
-    transport: "http"            # "http" (Streamable HTTP), "sse" (legacy), or "stdio"
-    headers:                     # optional — auth for a protected server
+    transport: "http"            # "http" | "sse" | "stdio"
+    headers:
       Authorization: "Bearer <token>"
     check_interval_seconds: 60
     tools_to_test:               # bare name, or {name, arguments}
@@ -150,67 +291,70 @@ servers:
     thresholds:
       latency_degraded_ms: 2000
       latency_down_ms: 10000
-    webhooks:                    # optional — all outputs are opt-in
+    on_tool_change: "degrade"    # "degrade" (until reviewed) | "alert" | "ignore"
+    anomaly:
+      enabled: true
+      sensitivity: 4.0           # robust z-score for a spike; lower = more sensitive
+      degrade: false             # also degrade on latency anomalies
+    webhooks:
       - type: uptime_kuma
         push_url: "https://kuma.example.com/api/push/xyz"
       - type: generic
         url: "https://hooks.example.com/webhook"
-        on: ["down", "degraded"]
+        "on": ["down", "degraded"]
+        on_anomaly: true         # also fire on anomalies / tool changes
 
-  local-server:                  # stdio server mcpsonar launches per check
+  local-server:
     transport: "stdio"
     command: "npx"
     args: ["-y", "@modelcontextprotocol/server-everything"]
-    # env: { API_TOKEN: "..." }
     tools_to_test:
       - name: echo
         arguments: { message: "healthcheck" }
 ```
 
-### Outputs (adapters)
+### Outputs
 
 - **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
-  detail in the message (avoids false down-alarms); `down` maps to down.
-- **Generic webhook** — POSTs the raw `CheckEvent` JSON; `on` filters which statuses fire it;
-  retries up to 3× with exponential backoff.
-- **Prometheus** — scrape `GET /metrics` (`mcpsonar_up`, `mcpsonar_status_code`,
-  `mcpsonar_latency_ms`, `mcpsonar_tools_failed`, `mcpsonar_spec_version_supported`, …).
+  detail (and any anomalies) in the message; `down` maps to down.
+- **Generic webhook** — POSTs the raw `CheckEvent` JSON for statuses in `on`, plus any check
+  that detected something new when `on_anomaly` is set; retries 3× with backoff.
+- **Prometheus** — `GET /metrics`: `mcpsonar_up`, `mcpsonar_status_code`, `mcpsonar_latency_ms`,
+  `mcpsonar_latency_baseline_ms`, `mcpsonar_latency_anomaly_score`, `mcpsonar_anomalies`,
+  `mcpsonar_tool_changes_pending`, `mcpsonar_tool_risks`, `mcpsonar_tools_failed`,
+  `mcpsonar_spec_version_supported`, …
 
-## Status thresholds
+### Status rules
 
-- **down** — connect/handshake failed, or latency ≥ `latency_down_ms`, or *all* tested tools failed
-- **degraded** — latency ≥ `latency_degraded_ms`, or *some* tested tools failed, or known-spec
-  validation issues
+- **down** — connect/handshake failed, latency ≥ `latency_down_ms`, or *all* tested tools failed
+- **degraded** — latency ≥ `latency_degraded_ms`, *some* tested tools failed, known-spec
+  validation issues, **unreviewed tool changes** (with `on_tool_change: degrade`), or a latency
+  anomaly (with `anomaly.degrade: true`)
 - **up** — none of the above
 
-An unrecognized spec version is **informational only** (`spec_version_supported: false`); it
-never changes the status.
+An unrecognized spec version is informational only (`spec_version_supported: false`).
 
 ## Development
 
 ```bash
 pip install -e ".[dev]"
-pytest                                   # unit/integration suite (bundled mock, http + stdio)
-bash scripts/smoke_e2e.sh                # full end-to-end smoke against the running app
-
-# Try it against the mock manually:
-python scripts/mock_mcp_server.py        # shell 1
-python scripts/manual_check.py --tools ping   # shell 2
+pytest                                   # unit + integration suite (bundled mock, http + stdio)
+ruff check src tests
+bash scripts/smoke_e2e.sh                # end-to-end smoke against the running app
+mcpsonar demo                            # everything, live
 ```
 
-`scripts/smoke_e2e.sh` starts the app + a mock MCP server + a webhook receiver and exercises
-auth, http/stdio checks, status/heartbeat, history, metrics, webhook delivery, export and CRUD
-— printing a PASS/FAIL summary (exit non-zero on any failure). Node/npx enables the stdio case.
+Adding a new MCP spec version = add one `validators/vYYYY_MM_DD.py` and register it; existing
+validators are never touched. Adding an output = one class implementing `BaseAdapter.send`.
 
-Adding support for a new MCP spec version = add one `validators/vYYYY_MM_DD.py` and register
-it; existing validators are never touched.
+## Roadmap
 
-## Scope (v0.4)
+- Per-tool latency baselines (today: the handshake)
+- Response drift: tools that still answer, but differently (shape / size of results)
+- Slack / Discord / email adapters, multi-user roles
+- PyPI release (`pip install mcpsonar`)
 
-Self-service web UI with **admin login**, SQLite persistence, uptime/latency history with
-configurable retention, YAML import/export, **http + sse + stdio** transports, and **auth
-headers** for protected servers. Single admin account (no multi-user roles yet); ExeWatch
-adapter not yet included.
+Ideas and PRs welcome — especially new poisoning rules with a real-world example.
 
 ## License
 

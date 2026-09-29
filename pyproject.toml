@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpsonar"
-version = "0.2.0"
-description = "Lightweight, protocol-aware health checks and observability for MCP servers"
+version = "0.5.0"
+description = "Uptime monitoring, rug-pull detection and anomaly detection for MCP servers"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
 authors = [{ name = "Alessandro Fraleoni" }]
-keywords = ["mcp", "model-context-protocol", "health-check", "monitoring", "observability"]
+keywords = ["mcp", "model-context-protocol", "monitoring", "security", "tool-poisoning", "rug-pull", "anomaly-detection", "llm", "agents"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: System :: Monitoring",
+    "Topic :: Security",
 ]
 dependencies = [
     "mcp>=1.0",
@@ -37,8 +38,8 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
 mcpsonar = "mcpsonar.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/alessandro-fraleoni/mcpsonar"
-Repository = "https://github.com/alessandro-fraleoni/mcpsonar"
+Homepage = "https://github.com/alefra93/MCPSonar"
+Repository = "https://github.com/alefra93/MCPSonar"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcpsonar"]

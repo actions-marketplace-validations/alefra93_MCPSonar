@@ -1,3 +1,3 @@
-"""mcpsonar — lightweight, protocol-aware health checks for MCP servers."""
+"""mcpsonar — uptime monitoring, rug-pull detection and anomaly detection for MCP servers."""
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
