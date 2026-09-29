@@ -33,5 +33,9 @@ def build_push_adapters(cfg: ServerConfig, client: httpx.AsyncClient) -> list[Ba
         if isinstance(webhook, UptimeKumaWebhook):
             adapters.append(UptimeKumaAdapter(webhook.push_url, client))
         elif isinstance(webhook, GenericWebhook):
-            adapters.append(GenericWebhookAdapter(webhook.url, webhook.on, client))
+            adapters.append(
+                GenericWebhookAdapter(
+                    webhook.url, webhook.on, client, on_anomaly=webhook.on_anomaly
+                )
+            )
     return adapters

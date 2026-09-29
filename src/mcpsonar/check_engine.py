@@ -9,9 +9,10 @@ protocol failure becomes a ``down`` event, so the scheduler can treat every serv
 from __future__ import annotations
 
 import contextlib
+from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 import httpx
 from mcp import ClientSession
@@ -22,6 +23,7 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import InitializeResult, Tool
 
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
+from .tooldefs import normalize_tool
 from .validators import get_validator, run_minimal_common_validation
 
 
@@ -158,11 +160,28 @@ def _format_exc(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+@dataclass
+class CheckOutcome:
+    """A check's event plus the raw material later analysis needs.
+
+    ``tools`` holds the normalized tool definitions from ``tools/list`` (see
+    :func:`mcpsonar.tooldefs.normalize_tool`), or None when the handshake never completed.
+    """
+
+    event: CheckEvent
+    tools: list[dict[str, Any]] | None = None
+
+
 async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
     """Run one health check against ``cfg`` and return a standardized :class:`CheckEvent`.
 
     Never raises: connection/handshake failures are caught and returned as a ``down`` event.
     """
+    return (await run_check(server_id, cfg)).event
+
+
+async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
+    """Like :func:`check_server`, but also returns the tool definitions that were listed."""
     thresholds = cfg.thresholds
     # Give the transport enough headroom to actually observe a "down due to latency" result
     # rather than aborting a slow-but-alive server early.
@@ -194,7 +213,7 @@ async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
                 latency_ms, thresholds, tools_checked, tools_failed, tool_notes, issues
             )
 
-            return CheckEvent(
+            event = CheckEvent(
                 server_id=server_id,
                 status=status,
                 latency_ms=latency_ms,
@@ -205,13 +224,16 @@ async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
                 spec_version_supported=spec_version_supported,
                 detail=detail,
             )
+            return CheckOutcome(event, [normalize_tool(t) for t in tools])
 
     except Exception as exc:  # connect failure, handshake failure, timeout, etc.
-        return CheckEvent(
-            server_id=server_id,
-            status=CheckStatus.DOWN,
-            latency_ms=0.0,
-            spec_version=None,
-            spec_version_supported=False,
-            detail=f"connection/handshake failed: {_format_exc(exc)}",
+        return CheckOutcome(
+            CheckEvent(
+                server_id=server_id,
+                status=CheckStatus.DOWN,
+                latency_ms=0.0,
+                spec_version=None,
+                spec_version_supported=False,
+                detail=f"connection/handshake failed: {_format_exc(exc)}",
+            )
         )
