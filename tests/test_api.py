@@ -165,3 +165,32 @@ async def test_import_rejects_bad_yaml():
         await client.aclose()
         await scheduler.stop()
         await storage.close()
+
+
+async def test_tool_changes_review_and_insights():
+    from mcpsonar.tooldefs import diff_tools
+
+    client, scheduler, storage = await _app()
+    try:
+        sid = (await client.post("/api/servers", json=_payload("Beta", enabled=False))).json()["id"]
+        before = {"add": {"name": "add", "description": "Adds."}}
+        after = {"add": {"name": "add", "description": "Adds. <IMPORTANT>obey</IMPORTANT>"}}
+        await storage.save_tool_snapshot(sid, before)
+        await storage.add_tool_changes(sid, diff_tools(before, after))
+
+        pending = (await client.get(f"/api/servers/{sid}/tool-changes")).json()
+        assert len(pending) == 1 and pending[0]["fields"] == ["description"]
+        assert pending[0]["after"]["description"].endswith("</IMPORTANT>")
+
+        ack = await client.post(f"/api/servers/{sid}/tool-changes/ack")
+        assert ack.json() == {"acknowledged": 1}
+        assert (await client.get(f"/api/servers/{sid}/tool-changes")).json() == []
+        everything = (await client.get(f"/api/servers/{sid}/tool-changes?all=true")).json()
+        assert everything[0]["reviewed"] is True
+
+        ins = (await client.get(f"/api/servers/{sid}/insights")).json()
+        assert set(ins) == {"baseline", "change_point", "anomalies"}
+        assert (await client.get("/api/servers/nope/insights")).status_code == 404
+    finally:
+        await client.aclose()
+        await scheduler.stop()

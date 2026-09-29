@@ -34,6 +34,19 @@ servers:
       latency_degraded_ms: 2000
       latency_down_ms: 10000
 
+    # Tool pinning (rug-pull detection). The first tools/list is pinned; any later change
+    # to a tool's name/description/schema is recorded until you review it in the dashboard.
+    #   "degrade" (default) keep the server degraded until reviewed
+    #   "alert"             record + notify webhooks, status unaffected
+    #   "ignore"            disable pinning
+    on_tool_change: "degrade"
+
+    # Anomaly detection on this server's own latency/status history (learned baseline).
+    anomaly:
+      enabled: true
+      sensitivity: 4.0   # robust z-score for a latency spike; lower = more sensitive
+      degrade: false     # also mark "degraded" on a latency spike/shift
+
     # Optional: forward each CheckEvent to external alerting/dashboard systems.
     # Omit entirely to rely only on the built-in dashboard.
     webhooks:
@@ -48,6 +61,7 @@ servers:
       - type: generic
         url: "https://hooks.example.com/webhook"
         "on": ["down", "degraded"]
+        on_anomaly: true   # also fire on anomalies / tool changes, whatever the status
 
   # A local stdio MCP server that mcpsonar launches for each check.
   stdio-example:

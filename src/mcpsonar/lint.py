@@ -63,7 +63,7 @@ _PATTERN_RULES: list[tuple[str, Severity, str, re.Pattern[str]]] = [
         re.compile(
             r"\b(do not|don'?t|never|without)\b.{0,15}\b(tell|telling|inform|informing|mention|"
             r"mentioning|reveal|revealing|notify|notifying|alert|alerting|show|showing)\b"
-            r".{0,20}\buser\b",
+            r".{0,20}\buser\b|\b(do not|don'?t|never)\s+(mention|reveal|disclose)\b",
             _I,
         ),
     ),
@@ -101,7 +101,17 @@ _PATTERN_RULES: list[tuple[str, Severity, str, re.Pattern[str]]] = [
         re.compile(
             r"(\bwhen(ever)?\b.{0,30}\b(other|another|any)\b.{0,15}\btools?\b|"
             r"\binstead of (using|calling)\b.{0,30}\btool\b|"
-            r"\b(before|after) (using|calling) (any|the|this|other)\b.{0,20}\btools?\b)",
+            r"\b(before|after) (using|calling) (any|other)\b.{0,20}\btools?\b)",
+            _I,
+        ),
+    ),
+    (
+        "hidden-precondition",
+        "medium",
+        "demands a side action before the tool can be used",
+        re.compile(
+            r"\bbefore (using|calling|invoking) this tool\b.{0,30}\b(read|call|send|fetch|open|"
+            r"include|pass|collect|upload)\b",
             _I,
         ),
     ),
