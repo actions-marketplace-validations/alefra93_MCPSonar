@@ -140,15 +140,33 @@ mcpsonar scan --stdio "npx -y @modelcontextprotocol/server-everything" --json
 Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfile drift ·
 `2` server unreachable. Accept a legitimate change with `--update-lock`.
 
-As a **GitHub Action**:
+As a **GitHub Action**, pinned to a release:
 
 ```yaml
-- uses: alefra93/MCPSonar@main
+- uses: alefra93/MCPSonar@v0.5.0
   with:
     target: https://mcp.example.com/mcp
     lock: mcp-tools.lock.json
     headers: |
       Authorization: Bearer ${{ secrets.MCP_TOKEN }}
+```
+
+A security check shouldn't change under you any more than the servers it watches. Never use
+`@main`. For the strongest guarantee, pin the release's full commit SHA (listed on the
+[Releases](https://github.com/alefra93/MCPSonar/releases) page) and let Dependabot propose
+updates:
+
+```yaml
+- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.5.0
+```
+
+```yaml
+# .github/dependabot.yml
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
 ```
 
 ## How it works
