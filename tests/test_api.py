@@ -194,3 +194,4 @@ async def test_tool_changes_review_and_insights():
     finally:
         await client.aclose()
         await scheduler.stop()
+        await storage.close()
