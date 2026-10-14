@@ -21,7 +21,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from .check_engine import _format_exc, _open_session
+from .check_engine import _find_http_error, _format_exc, _open_session
 from .lint import SEVERITY_ORDER, Finding, lint_tools
 from .models import ServerConfig, TransportType
 from .tooldefs import ToolChange, diff_tools, fingerprint, index_tools, normalize_tool
@@ -96,7 +96,14 @@ async def scan(cfg: ServerConfig, label: str, timeout_s: float = 20.0) -> ScanRe
                 result.server_version = init.serverInfo.version
             tools = (await session.list_tools()).tools
     except Exception as exc:
-        result.error = _format_exc(exc)
+        http_err = _find_http_error(exc)
+        if http_err is not None and http_err.response.status_code in (401, 403):
+            result.error = (
+                f"authentication required ({http_err.response.status_code}) — pass a token "
+                "with -H 'Authorization: Bearer <token>'"
+            )
+        else:
+            result.error = _format_exc(exc)
         return result
     definitions = [normalize_tool(t) for t in tools]
     result.tools = index_tools(definitions)

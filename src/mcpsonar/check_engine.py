@@ -186,6 +186,58 @@ def _format_exc(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+def _find_http_error(exc: BaseException) -> httpx.HTTPStatusError | None:
+    """The HTTP status error buried in a (possibly nested) anyio ExceptionGroup, if any."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc
+    if isinstance(exc, BaseExceptionGroup):
+        for sub in exc.exceptions:
+            found = _find_http_error(sub)
+            if found is not None:
+                return found
+    return None
+
+
+def _has_auth_header(cfg: ServerConfig) -> bool:
+    return any(k.lower() in ("authorization", "x-api-key") for k in cfg.headers)
+
+
+def _auth_outcome(
+    server_id: str, cfg: ServerConfig, err: httpx.HTTPStatusError, latency_ms: float
+) -> CheckOutcome:
+    """Classify a 401/403 answer.
+
+    Without credentials configured, a 401/403 means the server is alive and protected (most
+    hosted MCP servers use OAuth): that's **up**, flagged ``auth_required`` — we just can't
+    see its tools. With credentials configured it means they were rejected: **down**.
+    """
+    code = err.response.status_code
+    challenge = err.response.headers.get("www-authenticate", "")
+    if _has_auth_header(cfg):
+        return CheckOutcome(
+            CheckEvent(
+                server_id=server_id,
+                status=CheckStatus.DOWN,
+                latency_ms=latency_ms,
+                auth_required=True,
+                detail=f"credentials rejected ({code}) — check the configured token",
+            )
+        )
+    kind = "MCP OAuth" if "resource_metadata" in challenge else (
+        challenge.split(" ", 1)[0] or "authentication")
+    status, detail = _classify(latency_ms, cfg.thresholds, 0, 0, [], [])
+    note = f"reachable — {kind} required ({code}); add an Authorization header to check tools"
+    return CheckOutcome(
+        CheckEvent(
+            server_id=server_id,
+            status=status,
+            latency_ms=latency_ms,
+            auth_required=True,
+            detail="; ".join(filter(None, [note, detail])),
+        )
+    )
+
+
 @dataclass
 class CheckOutcome:
     """A check's event plus the raw material later analysis needs.
@@ -212,6 +264,7 @@ async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
     # Give the transport enough headroom to actually observe a "down due to latency" result
     # rather than aborting a slow-but-alive server early.
     timeout_s = thresholds.latency_down_ms / 1000.0 + 5.0
+    t0 = perf_counter()
 
     try:
         async with _open_session(cfg, timeout_s) as session:
@@ -253,6 +306,9 @@ async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
             return CheckOutcome(event, [normalize_tool(t) for t in tools])
 
     except Exception as exc:  # connect failure, handshake failure, timeout, etc.
+        http_err = _find_http_error(exc)
+        if http_err is not None and http_err.response.status_code in (401, 403):
+            return _auth_outcome(server_id, cfg, http_err, (perf_counter() - t0) * 1000.0)
         return CheckOutcome(
             CheckEvent(
                 server_id=server_id,

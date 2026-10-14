@@ -275,6 +275,7 @@ _PAGE = r"""<!doctype html>
        border-color:color-mix(in srgb,var(--degraded) 30%,transparent);}
   .badge.anom{color:var(--anom);background:color-mix(in srgb,var(--anom) 11%,transparent);
        border-color:color-mix(in srgb,var(--anom) 28%,transparent);}
+  .badge.lock{color:var(--muted);background:var(--surface-2);border-color:var(--border-strong);cursor:default;}
   .badge:hover{filter:brightness(1.08);}
   .badge .when{font-weight:500;opacity:.8;}
   .tile.warn .rail{background:var(--down);} .tile.anom .rail{background:var(--anom);}
@@ -533,11 +534,13 @@ async function refresh() {
     const probed = ev && ev.tools_checked
       ? ` · ${ev.tools_checked-ev.tools_failed}/${ev.tools_checked} probed ok` : "";
     const when = ev ? relTime(ev.checked_at) : "never";
-    const detail = ev && ev.detail ? ` · <span class="detail">${esc(ev.detail)}</span>` : "";
+    const dcol = ev && ev.status==="up" ? "var(--muted)" : ev && ev.status==="degraded" ? "var(--degraded)" : "var(--down)";
+    const detail = ev && ev.detail ? ` · <span class="detail" style="color:${dcol}">${esc(ev.detail)}</span>` : "";
     const paused = s.enabled ? "" : '<span class="paused">paused</span>';
     const baseline = ev && ev.latency_baseline_ms!=null
       ? `<span>baseline <b>${Math.round(ev.latency_baseline_ms)} ms</b></span>` : "";
     let badges = "";
+    if (ev && ev.auth_required) badges += `<span class="badge lock" title="${esc(ev.detail||"")}">🔒 auth required · tools not visible</span>`;
     if (ev && ev.tool_changes) badges += `<button class="badge warn" onclick="openChanges('${s.id}')">⚠ ${ev.tool_changes} tool change${ev.tool_changes===1?"":"s"} · Review</button>`;
     if (ev && ev.tool_risks) badges += `<button class="badge risk" onclick="openTools('${s.id}')">🛡 ${ev.tool_risks} suspicious tool finding${ev.tool_risks===1?"":"s"}</button>`;
     const la = s.last_anomaly;

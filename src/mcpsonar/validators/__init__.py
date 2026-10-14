@@ -16,7 +16,7 @@ from .base import (
 )
 
 # Import concrete validators for their registration side effects.
-from . import v2025_11_25  # noqa: F401  (registers V20251125Validator)
+from . import v2024_11_05, v2025_03_26, v2025_06_18, v2025_11_25  # noqa: F401
 
 __all__ = [
     "VALIDATOR_REGISTRY",

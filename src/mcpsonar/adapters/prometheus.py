@@ -69,6 +69,11 @@ def render_metrics(servers: list[MonitoredServer], store: StateStore) -> str:
         ],
     )
     lines += _metric(
+        "mcpsonar_auth_required",
+        "1 if the server refused an anonymous client (401/403): alive but needs credentials.",
+        [f"mcpsonar_auth_required{{{label(e)}}} {1 if e.auth_required else 0}" for e in events],
+    )
+    lines += _metric(
         "mcpsonar_tool_changes_pending",
         "Tool-definition changes detected vs. the pinned baseline and not yet reviewed.",
         [f"mcpsonar_tool_changes_pending{{{label(e)}}} {e.tool_changes}" for e in events],

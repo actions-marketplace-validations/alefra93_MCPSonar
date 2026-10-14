@@ -104,6 +104,12 @@ class CheckEvent(BaseModel):
         description="Human-readable note: error message when down, or the reason for a "
         "degraded classification. None when everything is nominal.",
     )
+    auth_required: bool = Field(
+        default=False,
+        description="The server answered 401/403 to an anonymous client: it is alive but needs "
+        "credentials (e.g. MCP OAuth). Counted as 'up' when no Authorization header is "
+        "configured — tools can't be listed, so tool checks are skipped.",
+    )
     tool_changes: int = Field(
         default=0,
         ge=0,

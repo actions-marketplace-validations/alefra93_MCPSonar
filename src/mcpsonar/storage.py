@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS checks (
     spec_version           TEXT,
     spec_version_supported INTEGER NOT NULL,
     detail                 TEXT,
+    auth_required          INTEGER NOT NULL DEFAULT 0,
     tool_changes           INTEGER NOT NULL DEFAULT 0,
     tool_risks             INTEGER NOT NULL DEFAULT 0,
     anomalies_json         TEXT,
@@ -100,6 +101,7 @@ async def _migrate(conn: aiosqlite.Connection) -> None:
     columns = {row[1] for row in await cur.fetchall()}
     added = {
         "tools_available": "INTEGER NOT NULL DEFAULT 0",
+        "auth_required": "INTEGER NOT NULL DEFAULT 0",
         "tool_changes": "INTEGER NOT NULL DEFAULT 0",
         "tool_risks": "INTEGER NOT NULL DEFAULT 0",
         "anomalies_json": "TEXT",
@@ -193,8 +195,8 @@ class Storage:
         await self._conn.execute(
             "INSERT INTO checks (server_id, status, checked_at, latency_ms, tools_checked, "
             "tools_failed, tools_available, spec_version, spec_version_supported, detail, "
-            "tool_changes, tool_risks, anomalies_json, latency_baseline_ms, latency_score) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "tool_changes, tool_risks, anomalies_json, latency_baseline_ms, latency_score, "
+            "auth_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.server_id,
                 event.status.value,
@@ -213,6 +215,7 @@ class Storage:
                 else None,
                 event.latency_baseline_ms,
                 event.latency_score,
+                int(event.auth_required),
             ),
         )
         await self._conn.commit()
@@ -237,6 +240,7 @@ class Storage:
             else [],
             latency_baseline_ms=row["latency_baseline_ms"],
             latency_score=row["latency_score"],
+            auth_required=bool(row["auth_required"]),
         )
 
     async def get_history(
