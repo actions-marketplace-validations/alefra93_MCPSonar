@@ -7,6 +7,8 @@ Register a new spec version by adding a module here and importing it below.
 
 from __future__ import annotations
 
+# Import concrete validators for their registration side effects.
+from . import v2024_11_05, v2025_03_26, v2025_06_18, v2025_11_25  # noqa: F401
 from .base import (
     VALIDATOR_REGISTRY,
     BaseValidator,
@@ -14,9 +16,6 @@ from .base import (
     register,
     run_minimal_common_validation,
 )
-
-# Import concrete validators for their registration side effects.
-from . import v2024_11_05, v2025_03_26, v2025_06_18, v2025_11_25  # noqa: F401
 
 __all__ = [
     "VALIDATOR_REGISTRY",

@@ -7,7 +7,7 @@ server starts checking it immediately — no restart. These routes back the mana
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
@@ -18,10 +18,10 @@ from .check_engine import _format_exc, _open_session
 from .lint import lint_tools
 from .loader import parse_config_text
 from .models import CheckStatus, ServerInput
-from .tooldefs import normalize_tool
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
+from .tooldefs import normalize_tool
 
 
 def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: Scheduler) -> None:
@@ -130,7 +130,7 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         if await storage.get_server(server_id) is None:
             raise HTTPException(404, "server not found")
         since = (
-            datetime.now(timezone.utc) - timedelta(minutes=minutes)
+            datetime.now(UTC) - timedelta(minutes=minutes)
             if minutes is not None
             else None
         )
@@ -163,7 +163,7 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         if server is None:
             raise HTTPException(404, "server not found")
         since = (
-            datetime.now(timezone.utc) - timedelta(minutes=minutes)
+            datetime.now(UTC) - timedelta(minutes=minutes)
             if minutes is not None
             else None
         )

@@ -6,7 +6,7 @@ every check — no network, deterministic history.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -26,7 +26,7 @@ class FakeEngine:
 
     def __init__(self, monkeypatch):
         self.next: tuple[CheckStatus, float, list[dict] | None] = (CheckStatus.UP, 50.0, [SAFE])
-        self.clock = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        self.clock = datetime(2026, 1, 1, tzinfo=UTC)
         monkeypatch.setattr(monitor, "run_check", self._run)
 
     async def _run(self, server_id, cfg):

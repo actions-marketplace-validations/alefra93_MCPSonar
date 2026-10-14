@@ -105,18 +105,17 @@ async def _detect_anomalies(
 
     recent = history[-(ad.FLAP_WINDOW - 1):]
     statuses = [e.status.value for e in recent] + [event.status.value]
-    if recent and ad.is_flapping(statuses):
-        if not await storage.anomaly_reported_since(
-            event.server_id, "flapping", recent[0].checked_at
-        ):
-            found.append(
-                Anomaly(
-                    kind="flapping",
-                    detail=f"{ad.count_transitions(statuses)} status changes in the last "
-                    f"{len(statuses)} checks",
-                    score=float(ad.count_transitions(statuses)),
-                )
+    if recent and ad.is_flapping(statuses) and not await storage.anomaly_reported_since(
+        event.server_id, "flapping", recent[0].checked_at
+    ):
+        found.append(
+            Anomaly(
+                kind="flapping",
+                detail=f"{ad.count_transitions(statuses)} status changes in the last "
+                f"{len(statuses)} checks",
+                score=float(ad.count_transitions(statuses)),
             )
+        )
     return found
 
 

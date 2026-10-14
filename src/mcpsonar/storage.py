@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -119,7 +119,7 @@ class Storage:
 
     # ---- lifecycle --------------------------------------------------------- #
     @classmethod
-    async def open(cls, path: str | Path) -> "Storage":
+    async def open(cls, path: str | Path) -> Storage:
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         conn = await aiosqlite.connect(path)
@@ -165,7 +165,7 @@ class Storage:
                 name,
                 int(enabled),
                 config.model_dump_json(),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         await self._conn.commit()
@@ -295,7 +295,7 @@ class Storage:
 
     async def save_tool_snapshot(self, server_id: str, tools: dict[str, dict]) -> None:
         """Replace the last-seen tool definitions (and mark the baseline as established)."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.execute(
             "INSERT OR IGNORE INTO tool_baselines (server_id, established_at) VALUES (?, ?)",
             (server_id, now),
@@ -309,7 +309,7 @@ class Storage:
         await self._conn.commit()
 
     async def add_tool_changes(self, server_id: str, changes: list[ToolChange]) -> None:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await self._conn.executemany(
             "INSERT INTO tool_changes (server_id, detected_at, kind, tool_name, fields_json, "
             "before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -397,7 +397,7 @@ class Storage:
         salt, pw_hash = hash_password(password)
         await self._conn.execute(
             "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
-            (username, pw_hash, salt, datetime.now(timezone.utc).isoformat()),
+            (username, pw_hash, salt, datetime.now(UTC).isoformat()),
         )
         await self._conn.commit()
 

@@ -88,7 +88,7 @@ class _Credentials(BaseModel):
     password: str
 
 
-def register_auth(app: FastAPI, storage: "Storage", require_auth: bool = True) -> None:
+def register_auth(app: FastAPI, storage: Storage, require_auth: bool = True) -> None:
     """Install the auth middleware (if enabled) and the auth routes + login page."""
     _secret: dict[str, str] = {}
 

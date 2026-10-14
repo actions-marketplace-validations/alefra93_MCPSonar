@@ -7,7 +7,7 @@ quickly as 'down' without needing a live MCP server.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mcpsonar.models import CheckEvent, CheckStatus, ServerConfig
 from mcpsonar.scheduler import Scheduler
@@ -83,7 +83,7 @@ async def test_scheduler_skips_disabled_servers():
 
 async def test_scheduler_prunes_old_history():
     storage = await Storage.open(":memory:")
-    old = datetime.now(timezone.utc) - timedelta(days=30)
+    old = datetime.now(UTC) - timedelta(days=30)
     await storage.record_check(
         CheckEvent(server_id="s1", status=CheckStatus.UP, checked_at=old, latency_ms=10,
                    spec_version="2025-11-25", spec_version_supported=True)

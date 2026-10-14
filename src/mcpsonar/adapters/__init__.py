@@ -16,12 +16,12 @@ from .prometheus import CONTENT_TYPE, render_metrics
 from .uptime_kuma import UptimeKumaAdapter
 
 __all__ = [
+    "CONTENT_TYPE",
     "BaseAdapter",
     "GenericWebhookAdapter",
     "UptimeKumaAdapter",
     "build_push_adapters",
     "render_metrics",
-    "CONTENT_TYPE",
 ]
 
 

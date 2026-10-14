@@ -25,7 +25,7 @@ def _result(*defs) -> ScanResult:
 
 
 def test_build_config_url_and_headers():
-    cfg, label = build_config("https://h/sse", None, None, ["Authorization: Bearer t"], [])
+    cfg, _label = build_config("https://h/sse", None, None, ["Authorization: Bearer t"], [])
     assert cfg.transport.value == "sse" and cfg.headers == {"Authorization": "Bearer t"}
     cfg, _ = build_config("https://h/mcp", None, None, [], [])
     assert cfg.transport.value == "http"

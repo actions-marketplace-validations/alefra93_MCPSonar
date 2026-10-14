@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
-from typing import Any, Iterator, Literal
+from typing import Any, Literal
 
 Severity = Literal["high", "medium", "low"]
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
@@ -40,7 +41,7 @@ class Finding:
 # Zero-width, bidi overrides/isolates and Unicode "tag" characters: invisible to a human
 # reviewing the description, perfectly readable to a model.
 _HIDDEN_CHARS = re.compile(
-    "[​-‏‪-‮⁠-⁤⁦-⁩﻿\U000e0000-\U000e007f]"
+    "[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\U000e0000-\U000e007f]"
 )
 
 _I = re.IGNORECASE | re.DOTALL

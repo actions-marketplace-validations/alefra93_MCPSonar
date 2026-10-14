@@ -32,7 +32,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.4"]
+# ruff is pinned exactly: its default rule set grows between releases, and CI must lint
+# with the same rules as a contributor's machine.
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff==0.17.0"]
 
 [project.scripts]
 mcpsonar = "mcpsonar.cli:main"
@@ -50,3 +52,9 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+# Broad `except Exception` is the design, not an accident: the check engine never raises
+# (any failure becomes a "down" event), and the scheduler, webhook retries and scanner must
+# survive whatever a third-party server or endpoint throws at them.
+ignore = ["BLE001"]

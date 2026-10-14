@@ -14,9 +14,9 @@ is performed.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -44,7 +44,7 @@ class TransportType(str, Enum):
 # The event — the stable contract every downstream consumer depends on
 # --------------------------------------------------------------------------- #
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Anomaly(BaseModel):
@@ -199,7 +199,7 @@ class GenericWebhook(BaseModel):
 
 # Discriminated union so the YAML `type:` picks the right model with clear errors.
 WebhookConfig = Annotated[
-    Union[UptimeKumaWebhook, GenericWebhook],
+    UptimeKumaWebhook | GenericWebhook,
     Field(discriminator="type"),
 ]
 
@@ -277,7 +277,7 @@ class ServerConfig(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _check_transport_fields(self) -> "ServerConfig":
+    def _check_transport_fields(self) -> ServerConfig:
         if self.transport == TransportType.STDIO:
             if not self.command:
                 raise ValueError("stdio transport requires 'command'")

@@ -16,7 +16,7 @@ import os
 import shlex
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -119,7 +119,7 @@ def write_lock(path: Path, result: ScanResult) -> None:
         "mcpsonar_lock": LOCK_VERSION,
         "server": {"name": result.server_name, "version": result.server_version},
         "spec_version": result.spec_version,
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "tools": {
             name: {"sha256": fingerprint(d), "definition": d}
             for name, d in sorted(result.tools.items())

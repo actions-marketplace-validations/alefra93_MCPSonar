@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -74,7 +74,7 @@ class Scheduler:
         while True:
             await asyncio.sleep(self._prune_interval_s)
             try:
-                cutoff = datetime.now(timezone.utc) - timedelta(days=self._retention_days)
+                cutoff = datetime.now(UTC) - timedelta(days=self._retention_days)
                 removed = await self._storage.prune_history(cutoff)
                 if removed:
                     logger.info("pruned %d check(s) older than %.1f day(s)",

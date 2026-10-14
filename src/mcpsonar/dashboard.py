@@ -794,7 +794,7 @@ function lcsDiff(a, b){
   return out;
 }
 // Make invisible characters visible: they are the whole point of some attacks.
-const showHidden = s => s.replace(/[​-‏‪-‮⁠-⁤⁦-⁩﻿]/g,
+const showHidden = s => s.replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
   c=>"⟦U+"+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,"0")+"⟧");
 function wordDiff(before, after){
   const tok=s=>showHidden(s||"").split(/(\s+)/).filter(x=>x!=="");

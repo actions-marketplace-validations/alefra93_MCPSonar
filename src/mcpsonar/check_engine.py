@@ -11,10 +11,11 @@ from __future__ import annotations
 import contextlib
 import functools
 import ssl
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
 from mcp import ClientSession
@@ -66,26 +67,22 @@ async def _open_session(cfg: ServerConfig, timeout_s: float) -> AsyncIterator[Cl
     if cfg.transport == TransportType.SSE:
         async with sse_client(
             cfg.url, headers=headers, timeout=timeout_s, httpx_client_factory=_http_client
-        ) as (read, write):
-            async with ClientSession(read, write) as session:
-                yield session
+        ) as (read, write), ClientSession(read, write) as session:
+            yield session
     elif cfg.transport == TransportType.STDIO:
         params = StdioServerParameters(
             command=cfg.command, args=cfg.args, env=(cfg.env or None)
         )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                yield session
+        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            yield session
     else:  # TransportType.HTTP -> Streamable HTTP
         timeout = httpx.Timeout(timeout_s)
-        async with _http_client(headers=headers, timeout=timeout) as http_client:
-            async with streamable_http_client(cfg.url, http_client=http_client) as (
-                read,
-                write,
-                _get_sid,
-            ):
-                async with ClientSession(read, write) as session:
-                    yield session
+        async with (
+            _http_client(headers=headers, timeout=timeout) as http_client,
+            streamable_http_client(cfg.url, http_client=http_client) as (read, write, _),
+            ClientSession(read, write) as session,
+        ):
+            yield session
 
 
 async def _probe_tools(

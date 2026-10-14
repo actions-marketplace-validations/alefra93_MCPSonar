@@ -19,6 +19,7 @@ live in :mod:`mcpsonar.monitor`.
 
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass
 from statistics import median
@@ -133,7 +134,7 @@ def find_change_point(
 
 
 def count_transitions(statuses: list[str]) -> int:
-    return sum(1 for a, b in zip(statuses, statuses[1:]) if a != b)
+    return sum(1 for a, b in itertools.pairwise(statuses) if a != b)
 
 
 def is_flapping(statuses: list[str], threshold: int = FLAP_TRANSITIONS) -> bool:
