@@ -8,6 +8,7 @@ protocol failure becomes a ``down`` event, so the scheduler can treat every serv
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import functools
 import ssl
@@ -235,6 +236,19 @@ def _auth_outcome(
     )
 
 
+def raise_if_cancelling(exc: BaseException) -> None:
+    """Re-raise cancellation that a library turned into an ordinary exception.
+
+    When a check is cancelled mid-flight (server paused/edited/deleted, shutdown), the MCP
+    SDK's task groups can surface it as e.g. a ClosedResourceError. Catching that as "server
+    down" would swallow the cancellation: the check loop would keep running and whoever
+    awaited the cancelled task would wait forever.
+    """
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError from exc
+
+
 @dataclass
 class CheckOutcome:
     """A check's event plus the raw material later analysis needs.
@@ -303,6 +317,7 @@ async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
             return CheckOutcome(event, [normalize_tool(t) for t in tools])
 
     except Exception as exc:  # connect failure, handshake failure, timeout, etc.
+        raise_if_cancelling(exc)
         http_err = _find_http_error(exc)
         if http_err is not None and http_err.response.status_code in (401, 403):
             return _auth_outcome(server_id, cfg, http_err, (perf_counter() - t0) * 1000.0)

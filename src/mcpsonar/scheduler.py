@@ -22,6 +22,7 @@ import httpx
 
 from .adapters import build_push_adapters
 from .adapters.base import BaseAdapter
+from .check_engine import raise_if_cancelling
 from .models import CheckEvent, MonitoredServer
 from .monitor import process_check
 from .state import StateStore
@@ -136,7 +137,8 @@ class Scheduler:
                 await self.run_once(server)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                raise_if_cancelling(exc)
                 logger.exception("unexpected error checking %s", server.id)
             await asyncio.sleep(server.check_interval_seconds)
 

@@ -34,3 +34,6 @@ First tagged release.
   regex and two test fixtures). They are now written as Unicode escape sequences, and CI
   rejects any invisible character in tracked files.
 - ruff pinned to an exact version so CI and local linting agree.
+- Pausing, editing or deleting a server while one of its checks was in flight could hang
+  forever: the MCP SDK can turn a cancellation into an ordinary error, which was recorded as
+  "down" and the check loop kept running. Cancellation is now always propagated.
