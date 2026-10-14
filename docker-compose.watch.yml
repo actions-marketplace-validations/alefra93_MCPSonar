@@ -1,0 +1,25 @@
+# Watch the popular hosted MCP servers 24/7 (see examples/popular-servers.yaml).
+#   docker compose -f docker-compose.watch.yml up -d --build
+#   open http://127.0.0.1:8675
+#
+# Bound to 127.0.0.1 only and run without login — fine for a personal machine; remove
+# --no-auth before exposing it anywhere else. The YAML seeds the DB on first start only;
+# afterwards manage servers from the UI.
+name: mcpsonar-watch
+
+services:
+  mcpsonar:
+    build: .
+    image: mcpsonar:0.5.0
+    container_name: mcpsonar-watch
+    ports:
+      - "127.0.0.1:8675:8675"
+    volumes:
+      - watch-data:/data
+      - ./examples/popular-servers.yaml:/config/servers.yaml:ro
+    command: ["run", "--host", "0.0.0.0", "--port", "8675", "--no-auth",
+              "--config", "/config/servers.yaml", "--retention-days", "30"]
+    restart: unless-stopped
+
+volumes:
+  watch-data:

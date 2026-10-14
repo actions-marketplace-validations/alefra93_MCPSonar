@@ -1,0 +1,37 @@
+# Popular hosted MCP servers, as of 2026-10-14.
+#   mcpsonar run --config examples/popular-servers.yaml
+#   (or: docker compose -f docker-compose.watch.yml up -d)
+#
+# Every check is one anonymous handshake + tools/list every 5 minutes — no tool is called.
+# Public servers: full checks (spec, tools, rug-pull pinning, poisoning lint, anomalies).
+# Protected servers: they answer 401 + an OAuth challenge, so they show as "up · auth
+# required" (alive, latency tracked); add an Authorization header to see their tools.
+
+servers:
+  # ---- public, no auth ------------------------------------------------------
+  DeepWiki:          { url: "https://mcp.deepwiki.com/mcp", check_interval_seconds: 300 }
+  Context7:          { url: "https://mcp.context7.com/mcp", check_interval_seconds: 300 }
+  Cloudflare Docs:   { url: "https://docs.mcp.cloudflare.com/mcp", check_interval_seconds: 300 }
+  Hugging Face:      { url: "https://huggingface.co/mcp", check_interval_seconds: 300 }
+  Microsoft Learn:   { url: "https://learn.microsoft.com/api/mcp", check_interval_seconds: 300 }
+  AWS Knowledge:     { url: "https://knowledge-mcp.global.api.aws", check_interval_seconds: 300 }
+  GitMCP:            { url: "https://gitmcp.io/docs", check_interval_seconds: 300 }
+  Exa:               { url: "https://mcp.exa.ai/mcp", check_interval_seconds: 300 }
+  Astro Docs:        { url: "https://mcp.docs.astro.build/mcp", check_interval_seconds: 300 }
+  Svelte:            { url: "https://mcp.svelte.dev/mcp", check_interval_seconds: 300 }
+  Kiwi.com Flights:  { url: "https://mcp.kiwi.com", check_interval_seconds: 300 }
+  grep.app:          { url: "https://mcp.grep.app", check_interval_seconds: 300 }
+  OpenZeppelin:      { url: "https://mcp.openzeppelin.com/contracts/solidity/mcp", check_interval_seconds: 300 }
+
+  # ---- OAuth / token protected ---------------------------------------------
+  GitHub:            { url: "https://api.githubcopilot.com/mcp/", check_interval_seconds: 300 }
+  Notion:            { url: "https://mcp.notion.com/mcp", check_interval_seconds: 300 }
+  Linear:            { url: "https://mcp.linear.app/mcp", check_interval_seconds: 300 }
+  Stripe:            { url: "https://mcp.stripe.com", check_interval_seconds: 300 }
+  Sentry:            { url: "https://mcp.sentry.dev/mcp", check_interval_seconds: 300 }
+  Atlassian:         { url: "https://mcp.atlassian.com/v1/sse", transport: "sse", check_interval_seconds: 300 }
+  Vercel:            { url: "https://mcp.vercel.com", check_interval_seconds: 300 }
+  Supabase:          { url: "https://mcp.supabase.com/mcp", check_interval_seconds: 300 }
+  PayPal:            { url: "https://mcp.paypal.com/mcp", check_interval_seconds: 300 }
+  Asana:             { url: "https://mcp.asana.com/sse", transport: "sse", check_interval_seconds: 300 }
+  Semgrep:           { url: "https://mcp.semgrep.ai/mcp", check_interval_seconds: 300 }

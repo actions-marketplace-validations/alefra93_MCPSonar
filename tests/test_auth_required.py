@@ -32,16 +32,30 @@ class _Protected(BaseHTTPRequestHandler):
         pass
 
 
-@pytest.fixture(params=[401, 403])
-def protected_url(request):
-    handler = type("H", (_Protected,), {"code": request.param})
+def _serve(code):
+    handler = type("H", (_Protected,), {"code": code})
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     server = HTTPServer(("127.0.0.1", port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{port}/mcp"
+    return server, f"http://127.0.0.1:{port}/mcp"
+
+
+@pytest.fixture(params=[401, 403])
+def protected_url(request):
+    server, url = _serve(request.param)
+    yield url
     server.shutdown()
+
+
+async def test_rate_limited_is_degraded_not_down():
+    server, url = _serve(429)
+    try:
+        ev = (await run_check("p", ServerConfig(url=url))).event
+        assert ev.status == CheckStatus.DEGRADED and "rate limited" in ev.detail
+    finally:
+        server.shutdown()
 
 
 async def test_anonymous_401_is_up_with_auth_required(protected_url):

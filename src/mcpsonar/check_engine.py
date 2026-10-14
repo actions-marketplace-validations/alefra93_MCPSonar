@@ -309,6 +309,17 @@ async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
         http_err = _find_http_error(exc)
         if http_err is not None and http_err.response.status_code in (401, 403):
             return _auth_outcome(server_id, cfg, http_err, (perf_counter() - t0) * 1000.0)
+        if http_err is not None and http_err.response.status_code == 429:
+            # Alive, but throttling us: a problem worth seeing, not an outage.
+            retry = http_err.response.headers.get("retry-after")
+            return CheckOutcome(
+                CheckEvent(
+                    server_id=server_id,
+                    status=CheckStatus.DEGRADED,
+                    latency_ms=(perf_counter() - t0) * 1000.0,
+                    detail="rate limited (429)" + (f", retry after {retry}s" if retry else ""),
+                )
+            )
         return CheckOutcome(
             CheckEvent(
                 server_id=server_id,

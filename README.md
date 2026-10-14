@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/alefra93/MCPSonar/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/alefra93/MCPSonar/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776ab">
-  <img alt="MCP spec 2025-11-25" src="https://img.shields.io/badge/MCP%20spec-2025--11--25-2dd4bf">
+  <img alt="MCP spec 2024-11-05 → 2025-11-25" src="https://img.shields.io/badge/MCP%20spec-2024--11--05%20%E2%86%92%202025--11--25-2dd4bf">
   <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-SQLite%20%C2%B7%20no%20cloud-0f766e">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
@@ -51,6 +51,19 @@ The dashboard opens against **four scripted MCP servers**. Within a few minutes 
 | `weather-api` | healthy, with the occasional spike | 📈 flags **spikes** against its learned baseline |
 
 Just want to check a server right now? `mcpsonar scan https://your-server/mcp`.
+
+### Watch the popular hosted MCP servers
+
+[`examples/popular-servers.yaml`](examples/popular-servers.yaml) lists 24 well-known hosted
+servers (DeepWiki, Context7, Hugging Face, Microsoft Learn, AWS Knowledge, GitHub, Notion,
+Stripe, Sentry…). One command keeps an eye on all of them, 24/7, restarting with your machine:
+
+```bash
+docker compose -f docker-compose.watch.yml up -d --build   # → http://127.0.0.1:8675
+```
+
+Each check is one anonymous handshake + `tools/list` every 5 minutes; no tool is ever called.
+OAuth-protected servers show as **up · auth required** (alive, latency tracked).
 
 ## What it catches
 
@@ -326,11 +339,14 @@ servers:
 
 ### Status rules
 
-- **down** — connect/handshake failed, latency ≥ `latency_down_ms`, or *all* tested tools failed
-- **degraded** — latency ≥ `latency_degraded_ms`, *some* tested tools failed, known-spec
+- **down** — connect/handshake failed, latency ≥ `latency_down_ms`, *all* tested tools failed,
+  or configured credentials were rejected (401/403)
+- **degraded** — latency ≥ `latency_degraded_ms`, rate limited (429), *some* tested tools failed, known-spec
   validation issues, **unreviewed tool changes** (with `on_tool_change: degrade`), or a latency
   anomaly (with `anomaly.degrade: true`)
-- **up** — none of the above
+- **up** — none of the above. A server that answers 401/403 to an anonymous client (typical
+  for MCP OAuth) is **up** with `auth_required: true`: alive, but its tools aren't visible until
+  you add an `Authorization` header.
 
 An unrecognized spec version is informational only (`spec_version_supported: false`).
 
@@ -351,6 +367,7 @@ validators are never touched. Adding an output = one class implementing `BaseAda
 
 - Per-tool latency baselines (today: the handshake)
 - Response drift: tools that still answer, but differently (shape / size of results)
+- Support for the MCP Python SDK 2.x (currently pinned to `mcp<2`)
 - Slack / Discord / email adapters, multi-user roles
 - PyPI release (`pip install mcpsonar`)
 
