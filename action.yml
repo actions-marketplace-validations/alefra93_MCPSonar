@@ -1,0 +1,57 @@
+name: "MCPSonar scan"
+description: "Fail the build when an MCP server's tools look poisoned, or silently change vs. a committed lockfile."
+author: "Alessandro Fraleoni"
+branding:
+  icon: "shield"
+  color: "green"
+
+inputs:
+  target:
+    description: "MCP server URL (Streamable HTTP, or SSE if it ends in /sse)."
+    required: false
+    default: ""
+  stdio:
+    description: 'Launch a stdio server instead, e.g. "npx -y @modelcontextprotocol/server-everything".'
+    required: false
+    default: ""
+  headers:
+    description: "HTTP headers, one per line (e.g. 'Authorization: Bearer ${{ secrets.TOKEN }}')."
+    required: false
+    default: ""
+  lock:
+    description: "Lockfile path. Written if missing (commit it); otherwise any tool change fails the job."
+    required: false
+    default: ""
+  fail-on:
+    description: "Lowest finding severity that fails the job: high | medium | low | never."
+    required: false
+    default: "high"
+  python-version:
+    description: "Python used to run mcpsonar."
+    required: false
+    default: "3.12"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Install mcpsonar
+      shell: bash
+      run: pip install --quiet "${{ github.action_path }}"
+    - name: Scan
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+        STDIO: ${{ inputs.stdio }}
+        HEADERS: ${{ inputs.headers }}
+        LOCK: ${{ inputs.lock }}
+        FAIL_ON: ${{ inputs.fail-on }}
+      run: |
+        args=()
+        [ -n "$TARGET" ] && args+=("$TARGET")
+        [ -n "$STDIO" ] && args+=(--stdio "$STDIO")
+        [ -n "$LOCK" ] && args+=(--lock "$LOCK")
+        while IFS= read -r h; do [ -n "$h" ] && args+=(-H "$h"); done <<< "$HEADERS"
+        mcpsonar scan "${args[@]}" --fail-on "$FAIL_ON"

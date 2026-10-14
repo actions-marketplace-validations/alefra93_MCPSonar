@@ -1,25 +1,30 @@
 """SQLite persistence (via aiosqlite): monitored servers + check history.
 
-Two tables:
+Tables:
 
 * ``servers`` — the monitors a user has added (survive restart). The check parameters are
   stored as a JSON blob of the :class:`ServerConfig` portion; identity/enabled are columns.
-* ``checks``  — one row per completed check, for the history graphs.
+* ``checks``  — one row per completed check, for the history graphs (anomalies included).
+* ``tool_baselines`` / ``tool_snapshots`` — the last-seen definition of every tool, per
+  server (rug-pull detection diffs against these).
+* ``tool_changes`` — every detected tool add/remove/change, until a human reviews it.
 
 Kept intentionally thin: hand-written SQL, no ORM, one shared async connection.
 """
 
 from __future__ import annotations
 
+import json
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
 
 from .auth import hash_password, verify_password
-from .models import CheckEvent, CheckStatus, MonitoredServer, ServerConfig
+from .models import Anomaly, CheckEvent, CheckStatus, MonitoredServer, ServerConfig
+from .tooldefs import ToolChange
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS servers (
@@ -40,9 +45,38 @@ CREATE TABLE IF NOT EXISTS checks (
     tools_available        INTEGER NOT NULL DEFAULT 0,
     spec_version           TEXT,
     spec_version_supported INTEGER NOT NULL,
-    detail                 TEXT
+    detail                 TEXT,
+    auth_required          INTEGER NOT NULL DEFAULT 0,
+    tool_changes           INTEGER NOT NULL DEFAULT 0,
+    tool_risks             INTEGER NOT NULL DEFAULT 0,
+    anomalies_json         TEXT,
+    latency_baseline_ms    REAL,
+    latency_score          REAL
 );
 CREATE INDEX IF NOT EXISTS idx_checks_server_time ON checks (server_id, checked_at);
+CREATE TABLE IF NOT EXISTS tool_baselines (
+    server_id      TEXT PRIMARY KEY,
+    established_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tool_snapshots (
+    server_id       TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    definition_json TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (server_id, name)
+);
+CREATE TABLE IF NOT EXISTS tool_changes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id    TEXT NOT NULL,
+    detected_at  TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    tool_name    TEXT NOT NULL,
+    fields_json  TEXT NOT NULL,
+    before_json  TEXT,
+    after_json   TEXT,
+    acknowledged INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tool_changes_server ON tool_changes (server_id, acknowledged);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -65,10 +99,18 @@ async def _migrate(conn: aiosqlite.Connection) -> None:
     """Add columns introduced after the initial schema to pre-existing databases."""
     cur = await conn.execute("PRAGMA table_info(checks)")
     columns = {row[1] for row in await cur.fetchall()}
-    if "tools_available" not in columns:
-        await conn.execute(
-            "ALTER TABLE checks ADD COLUMN tools_available INTEGER NOT NULL DEFAULT 0"
-        )
+    added = {
+        "tools_available": "INTEGER NOT NULL DEFAULT 0",
+        "auth_required": "INTEGER NOT NULL DEFAULT 0",
+        "tool_changes": "INTEGER NOT NULL DEFAULT 0",
+        "tool_risks": "INTEGER NOT NULL DEFAULT 0",
+        "anomalies_json": "TEXT",
+        "latency_baseline_ms": "REAL",
+        "latency_score": "REAL",
+    }
+    for name, decl in added.items():
+        if name not in columns:
+            await conn.execute(f"ALTER TABLE checks ADD COLUMN {name} {decl}")
 
 
 class Storage:
@@ -77,7 +119,7 @@ class Storage:
 
     # ---- lifecycle --------------------------------------------------------- #
     @classmethod
-    async def open(cls, path: str | Path) -> "Storage":
+    async def open(cls, path: str | Path) -> Storage:
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         conn = await aiosqlite.connect(path)
@@ -123,7 +165,7 @@ class Storage:
                 name,
                 int(enabled),
                 config.model_dump_json(),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         await self._conn.commit()
@@ -143,7 +185,8 @@ class Storage:
 
     async def delete_server(self, server_id: str) -> bool:
         cur = await self._conn.execute("DELETE FROM servers WHERE id = ?", (server_id,))
-        await self._conn.execute("DELETE FROM checks WHERE server_id = ?", (server_id,))
+        for table in ("checks", "tool_baselines", "tool_snapshots", "tool_changes"):
+            await self._conn.execute(f"DELETE FROM {table} WHERE server_id = ?", (server_id,))
         await self._conn.commit()
         return cur.rowcount > 0
 
@@ -151,8 +194,9 @@ class Storage:
     async def record_check(self, event: CheckEvent) -> None:
         await self._conn.execute(
             "INSERT INTO checks (server_id, status, checked_at, latency_ms, tools_checked, "
-            "tools_failed, tools_available, spec_version, spec_version_supported, detail) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "tools_failed, tools_available, spec_version, spec_version_supported, detail, "
+            "tool_changes, tool_risks, anomalies_json, latency_baseline_ms, latency_score, "
+            "auth_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.server_id,
                 event.status.value,
@@ -164,6 +208,14 @@ class Storage:
                 event.spec_version,
                 int(event.spec_version_supported),
                 event.detail,
+                event.tool_changes,
+                event.tool_risks,
+                json.dumps([a.model_dump(mode="json") for a in event.anomalies])
+                if event.anomalies
+                else None,
+                event.latency_baseline_ms,
+                event.latency_score,
+                int(event.auth_required),
             ),
         )
         await self._conn.commit()
@@ -181,6 +233,14 @@ class Storage:
             spec_version=row["spec_version"],
             spec_version_supported=bool(row["spec_version_supported"]),
             detail=row["detail"],
+            tool_changes=row["tool_changes"],
+            tool_risks=row["tool_risks"],
+            anomalies=[Anomaly.model_validate(a) for a in json.loads(row["anomalies_json"])]
+            if row["anomalies_json"]
+            else [],
+            latency_baseline_ms=row["latency_baseline_ms"],
+            latency_score=row["latency_score"],
+            auth_required=bool(row["auth_required"]),
         )
 
     async def get_history(
@@ -202,10 +262,107 @@ class Storage:
         rows = await cur.fetchall()
         return [self._row_to_event(r) for r in rows]
 
+    async def anomaly_reported_since(self, server_id: str, kind: str, since: datetime) -> bool:
+        """Whether a check at/after ``since`` already reported an anomaly of ``kind``
+        (used to report a latency shift or a flapping episode once, not on every check)."""
+        cur = await self._conn.execute(
+            "SELECT 1 FROM checks WHERE server_id = ? AND checked_at >= ? "
+            "AND anomalies_json LIKE ? LIMIT 1",
+            (server_id, since.isoformat(), f'%"kind": "{kind}"%'),
+        )
+        return await cur.fetchone() is not None
+
     async def prune_history(self, older_than: datetime) -> int:
         """Delete check rows older than a cutoff. Returns the number removed."""
         cur = await self._conn.execute(
             "DELETE FROM checks WHERE checked_at < ?", (older_than.isoformat(),)
+        )
+        await self._conn.commit()
+        return cur.rowcount
+
+    # ---- tool pinning (rug-pull detection) ---------------------------------- #
+    async def get_tool_snapshot(self, server_id: str) -> dict[str, dict] | None:
+        """Last-seen ``{tool name: normalized definition}``, or None if no baseline yet."""
+        cur = await self._conn.execute(
+            "SELECT 1 FROM tool_baselines WHERE server_id = ?", (server_id,)
+        )
+        if await cur.fetchone() is None:
+            return None
+        cur = await self._conn.execute(
+            "SELECT name, definition_json FROM tool_snapshots WHERE server_id = ?", (server_id,)
+        )
+        return {r["name"]: json.loads(r["definition_json"]) for r in await cur.fetchall()}
+
+    async def save_tool_snapshot(self, server_id: str, tools: dict[str, dict]) -> None:
+        """Replace the last-seen tool definitions (and mark the baseline as established)."""
+        now = datetime.now(UTC).isoformat()
+        await self._conn.execute(
+            "INSERT OR IGNORE INTO tool_baselines (server_id, established_at) VALUES (?, ?)",
+            (server_id, now),
+        )
+        await self._conn.execute("DELETE FROM tool_snapshots WHERE server_id = ?", (server_id,))
+        await self._conn.executemany(
+            "INSERT INTO tool_snapshots (server_id, name, definition_json, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            [(server_id, name, json.dumps(d, sort_keys=True), now) for name, d in tools.items()],
+        )
+        await self._conn.commit()
+
+    async def add_tool_changes(self, server_id: str, changes: list[ToolChange]) -> None:
+        now = datetime.now(UTC).isoformat()
+        await self._conn.executemany(
+            "INSERT INTO tool_changes (server_id, detected_at, kind, tool_name, fields_json, "
+            "before_json, after_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    server_id,
+                    now,
+                    c.kind,
+                    c.tool,
+                    json.dumps(c.fields),
+                    json.dumps(c.before) if c.before is not None else None,
+                    json.dumps(c.after) if c.after is not None else None,
+                )
+                for c in changes
+            ],
+        )
+        await self._conn.commit()
+
+    async def list_tool_changes(
+        self, server_id: str, include_reviewed: bool = False, limit: int = 200
+    ) -> list[dict]:
+        """Detected tool changes, newest first."""
+        where = "" if include_reviewed else " AND acknowledged = 0"
+        cur = await self._conn.execute(
+            f"SELECT * FROM tool_changes WHERE server_id = ?{where} ORDER BY id DESC LIMIT ?",
+            (server_id, limit),
+        )
+        return [
+            {
+                "id": r["id"],
+                "detected_at": r["detected_at"],
+                "kind": r["kind"],
+                "tool": r["tool_name"],
+                "fields": json.loads(r["fields_json"]),
+                "before": json.loads(r["before_json"]) if r["before_json"] else None,
+                "after": json.loads(r["after_json"]) if r["after_json"] else None,
+                "reviewed": bool(r["acknowledged"]),
+            }
+            for r in await cur.fetchall()
+        ]
+
+    async def count_pending_tool_changes(self, server_id: str) -> int:
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) AS n FROM tool_changes WHERE server_id = ? AND acknowledged = 0",
+            (server_id,),
+        )
+        return (await cur.fetchone())["n"]
+
+    async def acknowledge_tool_changes(self, server_id: str) -> int:
+        """Mark every pending change as reviewed. Returns how many were acknowledged."""
+        cur = await self._conn.execute(
+            "UPDATE tool_changes SET acknowledged = 1 WHERE server_id = ? AND acknowledged = 0",
+            (server_id,),
         )
         await self._conn.commit()
         return cur.rowcount
@@ -240,7 +397,7 @@ class Storage:
         salt, pw_hash = hash_password(password)
         await self._conn.execute(
             "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
-            (username, pw_hash, salt, datetime.now(timezone.utc).isoformat()),
+            (username, pw_hash, salt, datetime.now(UTC).isoformat()),
         )
         await self._conn.commit()
 

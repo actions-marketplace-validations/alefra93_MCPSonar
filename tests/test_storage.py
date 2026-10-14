@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mcpsonar.models import CheckEvent, CheckStatus, ServerConfig, ToolProbe, TransportType
 from mcpsonar.storage import Storage
@@ -93,7 +93,7 @@ async def test_tools_available_roundtrips():
     storage = await _store()
     await storage.record_check(
         CheckEvent(
-            server_id="s1", status=CheckStatus.UP, checked_at=datetime.now(timezone.utc),
+            server_id="s1", status=CheckStatus.UP, checked_at=datetime.now(UTC),
             latency_ms=10, tools_available=7, spec_version="2025-11-25",
             spec_version_supported=True,
         )
@@ -105,7 +105,7 @@ async def test_tools_available_roundtrips():
 
 async def test_history_record_query_and_prune():
     storage = await _store()
-    base = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
     for i in range(5):
         await storage.record_check(
             _event("s1", CheckStatus.UP, base + timedelta(minutes=i), latency=100 + i)

@@ -8,21 +8,49 @@ protocol failure becomes a ``down`` event, so the scheduler can treat every serv
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import functools
+import ssl
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter
-from typing import AsyncIterator
+from typing import Any
 
 import httpx
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import InitializeResult, Tool
 
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
+from .tooldefs import normalize_tool
 from .validators import get_validator, run_minimal_common_validation
+
+
+@functools.cache
+def _ssl_context() -> ssl.SSLContext:
+    """One TLS context for every check. Building one loads the CA bundle (~200 ms of blocking
+    CPU); doing that per check stalls the event loop and inflates the latency measured for
+    every *other* server being checked at the same time."""
+    return httpx.create_ssl_context()
+
+
+def _http_client(
+    headers: dict[str, str] | None = None,
+    timeout: httpx.Timeout | None = None,
+    auth: httpx.Auth | None = None,
+) -> httpx.AsyncClient:
+    """Same defaults as the SDK's ``create_mcp_http_client``, with the shared TLS context."""
+    return httpx.AsyncClient(
+        follow_redirects=True,
+        headers=headers,
+        timeout=timeout if timeout is not None else httpx.Timeout(30.0, read=300.0),
+        auth=auth,
+        verify=_ssl_context(),
+    )
 
 
 @contextlib.asynccontextmanager
@@ -38,26 +66,24 @@ async def _open_session(cfg: ServerConfig, timeout_s: float) -> AsyncIterator[Cl
     """
     headers = cfg.headers or None
     if cfg.transport == TransportType.SSE:
-        async with sse_client(cfg.url, headers=headers, timeout=timeout_s) as (read, write):
-            async with ClientSession(read, write) as session:
-                yield session
+        async with sse_client(
+            cfg.url, headers=headers, timeout=timeout_s, httpx_client_factory=_http_client
+        ) as (read, write), ClientSession(read, write) as session:
+            yield session
     elif cfg.transport == TransportType.STDIO:
         params = StdioServerParameters(
             command=cfg.command, args=cfg.args, env=(cfg.env or None)
         )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                yield session
+        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            yield session
     else:  # TransportType.HTTP -> Streamable HTTP
         timeout = httpx.Timeout(timeout_s)
-        async with create_mcp_http_client(headers=headers, timeout=timeout) as http_client:
-            async with streamable_http_client(cfg.url, http_client=http_client) as (
-                read,
-                write,
-                _get_sid,
-            ):
-                async with ClientSession(read, write) as session:
-                    yield session
+        async with (
+            _http_client(headers=headers, timeout=timeout) as http_client,
+            streamable_http_client(cfg.url, http_client=http_client) as (read, write, _),
+            ClientSession(read, write) as session,
+        ):
+            yield session
 
 
 async def _probe_tools(
@@ -158,15 +184,98 @@ def _format_exc(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+def _find_http_error(exc: BaseException) -> httpx.HTTPStatusError | None:
+    """The HTTP status error buried in a (possibly nested) anyio ExceptionGroup, if any."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc
+    if isinstance(exc, BaseExceptionGroup):
+        for sub in exc.exceptions:
+            found = _find_http_error(sub)
+            if found is not None:
+                return found
+    return None
+
+
+def _has_auth_header(cfg: ServerConfig) -> bool:
+    return any(k.lower() in ("authorization", "x-api-key") for k in cfg.headers)
+
+
+def _auth_outcome(
+    server_id: str, cfg: ServerConfig, err: httpx.HTTPStatusError, latency_ms: float
+) -> CheckOutcome:
+    """Classify a 401/403 answer.
+
+    Without credentials configured, a 401/403 means the server is alive and protected (most
+    hosted MCP servers use OAuth): that's **up**, flagged ``auth_required`` — we just can't
+    see its tools. With credentials configured it means they were rejected: **down**.
+    """
+    code = err.response.status_code
+    challenge = err.response.headers.get("www-authenticate", "")
+    if _has_auth_header(cfg):
+        return CheckOutcome(
+            CheckEvent(
+                server_id=server_id,
+                status=CheckStatus.DOWN,
+                latency_ms=latency_ms,
+                auth_required=True,
+                detail=f"credentials rejected ({code}) — check the configured token",
+            )
+        )
+    kind = "MCP OAuth" if "resource_metadata" in challenge else (
+        challenge.split(" ", 1)[0] or "authentication")
+    status, detail = _classify(latency_ms, cfg.thresholds, 0, 0, [], [])
+    note = f"reachable — {kind} required ({code}); add an Authorization header to check tools"
+    return CheckOutcome(
+        CheckEvent(
+            server_id=server_id,
+            status=status,
+            latency_ms=latency_ms,
+            auth_required=True,
+            detail="; ".join(filter(None, [note, detail])),
+        )
+    )
+
+
+def raise_if_cancelling(exc: BaseException) -> None:
+    """Re-raise cancellation that a library turned into an ordinary exception.
+
+    When a check is cancelled mid-flight (server paused/edited/deleted, shutdown), the MCP
+    SDK's task groups can surface it as e.g. a ClosedResourceError. Catching that as "server
+    down" would swallow the cancellation: the check loop would keep running and whoever
+    awaited the cancelled task would wait forever.
+    """
+    task = asyncio.current_task()
+    if task is not None and task.cancelling():
+        raise asyncio.CancelledError from exc
+
+
+@dataclass
+class CheckOutcome:
+    """A check's event plus the raw material later analysis needs.
+
+    ``tools`` holds the normalized tool definitions from ``tools/list`` (see
+    :func:`mcpsonar.tooldefs.normalize_tool`), or None when the handshake never completed.
+    """
+
+    event: CheckEvent
+    tools: list[dict[str, Any]] | None = None
+
+
 async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
     """Run one health check against ``cfg`` and return a standardized :class:`CheckEvent`.
 
     Never raises: connection/handshake failures are caught and returned as a ``down`` event.
     """
+    return (await run_check(server_id, cfg)).event
+
+
+async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
+    """Like :func:`check_server`, but also returns the tool definitions that were listed."""
     thresholds = cfg.thresholds
     # Give the transport enough headroom to actually observe a "down due to latency" result
     # rather than aborting a slow-but-alive server early.
     timeout_s = thresholds.latency_down_ms / 1000.0 + 5.0
+    t0 = perf_counter()
 
     try:
         async with _open_session(cfg, timeout_s) as session:
@@ -194,7 +303,7 @@ async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
                 latency_ms, thresholds, tools_checked, tools_failed, tool_notes, issues
             )
 
-            return CheckEvent(
+            event = CheckEvent(
                 server_id=server_id,
                 status=status,
                 latency_ms=latency_ms,
@@ -205,13 +314,31 @@ async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
                 spec_version_supported=spec_version_supported,
                 detail=detail,
             )
+            return CheckOutcome(event, [normalize_tool(t) for t in tools])
 
     except Exception as exc:  # connect failure, handshake failure, timeout, etc.
-        return CheckEvent(
-            server_id=server_id,
-            status=CheckStatus.DOWN,
-            latency_ms=0.0,
-            spec_version=None,
-            spec_version_supported=False,
-            detail=f"connection/handshake failed: {_format_exc(exc)}",
+        raise_if_cancelling(exc)
+        http_err = _find_http_error(exc)
+        if http_err is not None and http_err.response.status_code in (401, 403):
+            return _auth_outcome(server_id, cfg, http_err, (perf_counter() - t0) * 1000.0)
+        if http_err is not None and http_err.response.status_code == 429:
+            # Alive, but throttling us: a problem worth seeing, not an outage.
+            retry = http_err.response.headers.get("retry-after")
+            return CheckOutcome(
+                CheckEvent(
+                    server_id=server_id,
+                    status=CheckStatus.DEGRADED,
+                    latency_ms=(perf_counter() - t0) * 1000.0,
+                    detail="rate limited (429)" + (f", retry after {retry}s" if retry else ""),
+                )
+            )
+        return CheckOutcome(
+            CheckEvent(
+                server_id=server_id,
+                status=CheckStatus.DOWN,
+                latency_ms=0.0,
+                spec_version=None,
+                spec_version_supported=False,
+                detail=f"connection/handshake failed: {_format_exc(exc)}",
+            )
         )

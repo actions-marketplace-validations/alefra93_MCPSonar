@@ -97,10 +97,17 @@ else
   echo "  SKIP  stdio server (npx not found)"
 fi
 
-WAIT=8; [ "$HAVE_NPX" = "1" ] && WAIT=14
+WAIT=8
 echo "=== waiting ${WAIT}s for checks ==="
 sleep "$WAIT"
 ST=$(curl -s -b "$JAR" $B/api/status)
+# `npx -y` can take 30s+ on a cold cache: poll for the stdio server's first result.
+if [ -n "$SID" ]; then
+  for _ in $(seq 1 30); do
+    [ "$(echo "$ST" | jstatus "$SID")" != "None" ] && break
+    sleep 2; ST=$(curl -s -b "$JAR" $B/api/status)
+  done
+fi
 
 echo "=== STATUS / HEARTBEAT ==="
 chk "mock http -> up"       "$(echo "$ST" | jstatus "$MID")" "up"

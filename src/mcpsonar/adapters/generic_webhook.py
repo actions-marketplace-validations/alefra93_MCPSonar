@@ -1,6 +1,8 @@
 """Generic webhook adapter: POST the raw CheckEvent JSON to an arbitrary URL.
 
-Fires only for the statuses listed in ``on`` (default down + degraded). Retries transient
+Fires for the statuses listed in ``on`` (default down + degraded) and, when ``on_anomaly`` is
+set (the default), for any check that detected something new — a latency anomaly, flapping,
+or a tool-definition change — whatever its status. Retries transient
 failures up to ``max_retries`` attempts with exponential backoff, then raises so the caller
 can log the final failure.
 """
@@ -28,16 +30,18 @@ class GenericWebhookAdapter(BaseAdapter):
         client: httpx.AsyncClient,
         max_retries: int = 3,
         backoff: float = 0.5,
+        on_anomaly: bool = True,
     ) -> None:
         super().__init__(client)
         self._url = url
         self._on = set(on)
+        self._on_anomaly = on_anomaly
         self._max_retries = max_retries
         self._backoff = backoff
 
     async def send(self, event: CheckEvent) -> None:
-        if event.status not in self._on:
-            return  # this status is not one this webhook cares about
+        if event.status not in self._on and not (self._on_anomaly and event.anomalies):
+            return  # nothing this webhook cares about
 
         payload = event.model_dump(mode="json")
         delay = self._backoff

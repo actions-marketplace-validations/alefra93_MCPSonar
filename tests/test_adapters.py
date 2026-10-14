@@ -17,13 +17,13 @@ from mcpsonar.storage import Storage
 
 
 def _event(status: CheckStatus, **kw) -> CheckEvent:
-    defaults = dict(
-        server_id="s1",
-        status=status,
-        latency_ms=1234.5,
-        spec_version="2025-11-25",
-        spec_version_supported=True,
-    )
+    defaults = {
+        "server_id": "s1",
+        "status": status,
+        "latency_ms": 1234.5,
+        "spec_version": "2025-11-25",
+        "spec_version_supported": True,
+    }
     defaults.update(kw)
     return CheckEvent(**defaults)
 

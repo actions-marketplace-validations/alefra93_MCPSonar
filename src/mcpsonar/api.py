@@ -6,21 +6,27 @@ server starts checking it immediately — no restart. These routes back the mana
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import asyncio
+from datetime import UTC, datetime, timedelta
 
 import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from .check_engine import _format_exc, _open_session, check_server
+from . import anomaly as ad
+from .check_engine import _format_exc, _open_session
+from .lint import lint_tools
 from .loader import parse_config_text
-from .models import ServerInput
+from .models import CheckStatus, ServerInput
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
+from .tooldefs import normalize_tool
 
 
 def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: Scheduler) -> None:
+    background: set[asyncio.Task] = set()  # keep fire-and-forget tasks referenced
+
     @app.get("/api/servers")
     async def list_servers():
         servers = await storage.list_servers()
@@ -63,14 +69,13 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         server = await storage.get_server(server_id)
         if server is None:
             raise HTTPException(404, "server not found")
-        event = await check_server(server.id, server.to_server_config())
-        store.update(event)
-        await storage.record_check(event)
+        event = await scheduler.run_once(server)
         return event.model_dump(mode="json")
 
     @app.get("/api/servers/{server_id}/tools")
     async def list_server_tools(server_id: str):
-        """Connect to the server right now and return the tools it exposes (name + description)."""
+        """Connect to the server right now and return the tools it exposes, each with its full
+        definition and any tool-poisoning findings."""
         server = await storage.get_server(server_id)
         if server is None:
             raise HTTPException(404, "server not found")
@@ -82,14 +87,75 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
                 tools = (await session.list_tools()).tools
         except Exception as exc:
             raise HTTPException(502, f"could not list tools: {_format_exc(exc)}") from exc
+        definitions = [normalize_tool(t) for t in tools]
+        findings = lint_tools(definitions)
         return [
             {
-                "name": t.name,
-                "title": getattr(t, "title", None),
-                "description": t.description or "",
+                "name": d["name"],
+                "title": d.get("title"),
+                "description": d.get("description") or "",
+                "definition": d,
+                "findings": [f.to_dict() for f in findings if f.tool == d["name"]],
             }
-            for t in tools
+            for d in definitions
         ]
+
+    @app.get("/api/servers/{server_id}/tool-changes")
+    async def tool_changes(server_id: str, all: bool = False):
+        """Tool add/remove/change events vs. the pinned baseline (pending only, or ``all``)."""
+        if await storage.get_server(server_id) is None:
+            raise HTTPException(404, "server not found")
+        return await storage.list_tool_changes(server_id, include_reviewed=all)
+
+    @app.post("/api/servers/{server_id}/tool-changes/ack")
+    async def acknowledge_tool_changes(server_id: str):
+        """Mark pending tool changes as reviewed: the current definitions become trusted."""
+        server = await storage.get_server(server_id)
+        if server is None:
+            raise HTTPException(404, "server not found")
+        count = await storage.acknowledge_tool_changes(server_id)
+        current = store.get(server_id)
+        if current is not None:
+            store.update(current.model_copy(update={"tool_changes": 0}))
+        # Re-check in the background so a 'degraded because of tool changes' clears promptly.
+        task = asyncio.create_task(scheduler.run_once(server))
+        background.add(task)
+        task.add_done_callback(background.discard)
+        return {"acknowledged": count}
+
+    @app.get("/api/servers/{server_id}/insights")
+    async def insights(server_id: str, minutes: int | None = None, limit: int = 500):
+        """Anomaly-detection view of a window of history: learned baseline, the most
+        significant latency change point, and every anomaly reported in the window."""
+        if await storage.get_server(server_id) is None:
+            raise HTTPException(404, "server not found")
+        since = (
+            datetime.now(UTC) - timedelta(minutes=minutes)
+            if minutes is not None
+            else None
+        )
+        events = await storage.get_history(server_id, since=since, limit=limit)
+        healthy = [e for e in events if e.status != CheckStatus.DOWN]
+        baseline = ad.robust_baseline([e.latency_ms for e in healthy])
+        cp = ad.find_change_point([e.latency_ms for e in healthy])
+        return {
+            "baseline": None
+            if baseline is None
+            else {"median_ms": baseline.median, "spread_ms": baseline.spread},
+            "change_point": None
+            if cp is None
+            else {
+                "at": healthy[cp.index].checked_at.isoformat(),
+                "before_ms": cp.before_ms,
+                "after_ms": cp.after_ms,
+                "t_stat": cp.t_stat,
+            },
+            "anomalies": [
+                {"checked_at": e.checked_at.isoformat(), **a.model_dump(mode="json")}
+                for e in events
+                for a in e.anomalies
+            ],
+        }
 
     @app.get("/api/servers/{server_id}/history")
     async def history(server_id: str, minutes: int | None = None, limit: int = 500):
@@ -97,7 +163,7 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         if server is None:
             raise HTTPException(404, "server not found")
         since = (
-            datetime.now(timezone.utc) - timedelta(minutes=minutes)
+            datetime.now(UTC) - timedelta(minutes=minutes)
             if minutes is not None
             else None
         )

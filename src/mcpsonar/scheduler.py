@@ -3,10 +3,10 @@
 One asyncio task per enabled server, started/stopped **at runtime** as servers are added,
 updated, or removed via the API — no restart. Each iteration:
 
-1. runs the check (the engine never raises),
+1. runs the check pipeline (:func:`mcpsonar.monitor.process_check`: engine + tool pinning
+   + anomaly detection, persisted to the history table),
 2. updates the in-memory StateStore (current state for the dashboard),
-3. persists the event to the history table,
-4. fans it out to that server's push adapters.
+3. fans it out to that server's push adapters.
 
 Owns the shared ``httpx.AsyncClient`` used by adapters, so adapter lifecycle follows the
 server lifecycle.
@@ -16,14 +16,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
 from .adapters import build_push_adapters
 from .adapters.base import BaseAdapter
-from .check_engine import check_server
+from .check_engine import raise_if_cancelling
 from .models import CheckEvent, MonitoredServer
+from .monitor import process_check
 from .state import StateStore
 from .storage import Storage
 
@@ -74,7 +75,7 @@ class Scheduler:
         while True:
             await asyncio.sleep(self._prune_interval_s)
             try:
-                cutoff = datetime.now(timezone.utc) - timedelta(days=self._retention_days)
+                cutoff = datetime.now(UTC) - timedelta(days=self._retention_days)
                 removed = await self._storage.prune_history(cutoff)
                 if removed:
                     logger.info("pruned %d check(s) older than %.1f day(s)",
@@ -111,30 +112,40 @@ class Scheduler:
             self._run_server(server), name=f"check:{server.id}"
         )
 
+    async def run_once(self, server: MonitoredServer) -> CheckEvent:
+        """Check a server now: analyse, persist, update live state and notify adapters."""
+        event = await process_check(self._storage, server.id, server.to_server_config())
+        self._store.update(event)
+        logger.info(
+            "%s (%s) -> %s (%.0fms, spec=%s)%s",
+            server.name,
+            server.id,
+            event.status.value,
+            event.latency_ms,
+            event.spec_version,
+            "".join(f" [{a.kind}: {a.detail}]" for a in event.anomalies),
+        )
+        adapters = self._adapters.get(server.id)
+        if adapters is None:  # e.g. a paused server checked on demand
+            adapters = build_push_adapters(server.to_server_config(), self._client)
+        await self._emit(server.id, event, adapters)
+        return event
+
     async def _run_server(self, server: MonitoredServer) -> None:
-        cfg = server.to_server_config()
         while True:
             try:
-                event = await check_server(server.id, cfg)
-                self._store.update(event)
-                await self._storage.record_check(event)
-                logger.info(
-                    "%s (%s) -> %s (%.0fms, spec=%s)",
-                    server.name,
-                    server.id,
-                    event.status.value,
-                    event.latency_ms,
-                    event.spec_version,
-                )
-                await self._emit(server.id, event)
+                await self.run_once(server)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                raise_if_cancelling(exc)
                 logger.exception("unexpected error checking %s", server.id)
-            await asyncio.sleep(cfg.check_interval_seconds)
+            await asyncio.sleep(server.check_interval_seconds)
 
-    async def _emit(self, server_id: str, event: CheckEvent) -> None:
-        for adapter in self._adapters.get(server_id, []):
+    async def _emit(
+        self, server_id: str, event: CheckEvent, adapters: list[BaseAdapter]
+    ) -> None:
+        for adapter in adapters:
             try:
                 await adapter.send(event)
             except Exception as exc:

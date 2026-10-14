@@ -14,9 +14,9 @@ is performed.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -44,7 +44,19 @@ class TransportType(str, Enum):
 # The event — the stable contract every downstream consumer depends on
 # --------------------------------------------------------------------------- #
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
+
+
+class Anomaly(BaseModel):
+    """Something unusual detected by a check, beyond plain up/degraded/down."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["latency_spike", "latency_shift", "flapping", "tool_change"]
+    detail: str
+    score: float | None = Field(
+        default=None, description="Strength of the signal (z-score / t-statistic), if any."
+    )
 
 
 class CheckEvent(BaseModel):
@@ -92,6 +104,37 @@ class CheckEvent(BaseModel):
         description="Human-readable note: error message when down, or the reason for a "
         "degraded classification. None when everything is nominal.",
     )
+    auth_required: bool = Field(
+        default=False,
+        description="The server answered 401/403 to an anonymous client: it is alive but needs "
+        "credentials (e.g. MCP OAuth). Counted as 'up' when no Authorization header is "
+        "configured — tools can't be listed, so tool checks are skipped.",
+    )
+    tool_changes: int = Field(
+        default=0,
+        ge=0,
+        description="Tool-definition changes (added/removed/changed tools) detected since the "
+        "baseline and not yet reviewed. Non-zero means the server's tools changed under you.",
+    )
+    tool_risks: int = Field(
+        default=0,
+        ge=0,
+        description="High/medium tool-poisoning findings in the current tool definitions.",
+    )
+    anomalies: list[Anomaly] = Field(
+        default_factory=list,
+        description="Things newly detected by *this* check (latency spike/shift, flapping, "
+        "tool changes). Empty on a nominal check.",
+    )
+    latency_baseline_ms: float | None = Field(
+        default=None,
+        description="Median latency of recent healthy checks (None until enough history).",
+    )
+    latency_score: float | None = Field(
+        default=None,
+        description="Robust z-score of this check's latency vs. the baseline "
+        "((latency - median) / scaled MAD). None until enough history.",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -108,6 +151,23 @@ class Thresholds(BaseModel):
 
     latency_degraded_ms: float = Field(default=2000, gt=0)
     latency_down_ms: float = Field(default=10000, gt=0)
+
+
+class AnomalyConfig(BaseModel):
+    """Statistical anomaly detection on the latency/status history of a server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    sensitivity: float = Field(
+        default=4.0,
+        gt=0,
+        description="Robust z-score above which a latency is a spike (lower = more alerts).",
+    )
+    degrade: bool = Field(
+        default=False,
+        description="Also mark the server 'degraded' when a latency anomaly is detected.",
+    )
 
 
 class UptimeKumaWebhook(BaseModel):
@@ -130,11 +190,16 @@ class GenericWebhook(BaseModel):
         default_factory=lambda: [CheckStatus.DOWN, CheckStatus.DEGRADED],
         description="Only fire this webhook when the event status is in this list.",
     )
+    on_anomaly: bool = Field(
+        default=True,
+        description="Also fire when a check detects something new (anomaly or tool change), "
+        "whatever its status.",
+    )
 
 
 # Discriminated union so the YAML `type:` picks the right model with clear errors.
 WebhookConfig = Annotated[
-    Union[UptimeKumaWebhook, GenericWebhook],
+    UptimeKumaWebhook | GenericWebhook,
     Field(discriminator="type"),
 ]
 
@@ -195,6 +260,13 @@ class ServerConfig(BaseModel):
     )
     thresholds: Thresholds = Field(default_factory=Thresholds)
     webhooks: list[WebhookConfig] = Field(default_factory=list)
+    on_tool_change: Literal["degrade", "alert", "ignore"] = Field(
+        default="degrade",
+        description="What to do when tool definitions change vs. the pinned baseline: "
+        "'degrade' keeps the server degraded until the change is reviewed, 'alert' only "
+        "records it and notifies, 'ignore' disables tool pinning.",
+    )
+    anomaly: AnomalyConfig = Field(default_factory=AnomalyConfig)
 
     @field_validator("tools_to_test", mode="before")
     @classmethod
@@ -205,7 +277,7 @@ class ServerConfig(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def _check_transport_fields(self) -> "ServerConfig":
+    def _check_transport_fields(self) -> ServerConfig:
         if self.transport == TransportType.STDIO:
             if not self.command:
                 raise ValueError("stdio transport requires 'command'")

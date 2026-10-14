@@ -27,6 +27,8 @@ class UptimeKumaAdapter(BaseAdapter):
     async def send(self, event: CheckEvent) -> None:
         kuma_status = "down" if event.status == CheckStatus.DOWN else "up"  # degraded -> up
         msg = event.status.value if not event.detail else f"{event.status.value}: {event.detail}"
+        if event.anomalies:
+            msg += " | " + "; ".join(f"{a.kind}: {a.detail}" for a in event.anomalies)
         params = {
             "status": kuma_status,
             "msg": msg,

@@ -69,6 +69,44 @@ def render_metrics(servers: list[MonitoredServer], store: StateStore) -> str:
         ],
     )
     lines += _metric(
+        "mcpsonar_auth_required",
+        "1 if the server refused an anonymous client (401/403): alive but needs credentials.",
+        [f"mcpsonar_auth_required{{{label(e)}}} {1 if e.auth_required else 0}" for e in events],
+    )
+    lines += _metric(
+        "mcpsonar_tool_changes_pending",
+        "Tool-definition changes detected vs. the pinned baseline and not yet reviewed.",
+        [f"mcpsonar_tool_changes_pending{{{label(e)}}} {e.tool_changes}" for e in events],
+    )
+    lines += _metric(
+        "mcpsonar_tool_risks",
+        "High/medium tool-poisoning findings in the current tool definitions.",
+        [f"mcpsonar_tool_risks{{{label(e)}}} {e.tool_risks}" for e in events],
+    )
+    lines += _metric(
+        "mcpsonar_latency_baseline_ms",
+        "Median latency of recent healthy checks (the learned baseline).",
+        [
+            f"mcpsonar_latency_baseline_ms{{{label(e)}}} {e.latency_baseline_ms:.3f}"
+            for e in events
+            if e.latency_baseline_ms is not None
+        ],
+    )
+    lines += _metric(
+        "mcpsonar_latency_anomaly_score",
+        "Robust z-score of the last latency vs. the baseline (|score| > 4 is unusual).",
+        [
+            f"mcpsonar_latency_anomaly_score{{{label(e)}}} {e.latency_score:.3f}"
+            for e in events
+            if e.latency_score is not None
+        ],
+    )
+    lines += _metric(
+        "mcpsonar_anomalies",
+        "Number of anomalies detected by the last check.",
+        [f"mcpsonar_anomalies{{{label(e)}}} {len(e.anomalies)}" for e in events],
+    )
+    lines += _metric(
         "mcpsonar_last_check_timestamp_seconds",
         "Unix timestamp of the last check.",
         [
