@@ -30,3 +30,7 @@ First tagged release.
   on every check).
 - Pinned `mcp>=1.28,<2`: the 2.x SDK is a breaking rewrite and broke every check on a fresh
   install.
+- Source files contained literal zero-width and bidi-override characters (in the lint's own
+  regex and two test fixtures). They are now written as Unicode escape sequences, and CI
+  rejects any invisible character in tracked files.
+- ruff pinned to an exact version so CI and local linting agree.
