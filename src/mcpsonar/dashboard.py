@@ -672,7 +672,10 @@ async function saveForm() {
     let cur=null; if(id) cur=await api("GET","/api/servers/"+id);
     const payload=formPayload(cur?cur.enabled:true);
     if(cur){ payload.webhooks=cur.webhooks;
-      payload.anomaly=Object.assign({}, cur.anomaly, payload.anomaly); }
+      payload.anomaly=Object.assign({}, cur.anomaly, payload.anomaly);
+      // The form edits probe *names* only: keep each kept probe's arguments/options.
+      const prev=Object.fromEntries((cur.tools_to_test||[]).map(t=>[t.name,t]));
+      payload.tools_to_test=payload.tools_to_test.map(n=>prev[n]||n); }
     if(id) await api("PUT","/api/servers/"+id,payload); else await api("POST","/api/servers",payload);
     closeForm(); refresh();
   } catch(e){ $("formErr").textContent="Error: "+e.message; }

@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import functools
 import ssl
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from time import perf_counter
@@ -23,7 +23,7 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import InitializeResult, Tool
+from mcp.types import InitializeResult, PaginatedRequestParams, Tool
 
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
 from .netpolicy import policy_transport
@@ -94,55 +94,116 @@ async def _open_session(cfg: ServerConfig, timeout_s: float) -> AsyncIterator[Cl
     blocking forever.
     """
     headers = cfg.headers or None
+    # Every request on the session (initialize, tools/list, ...) gives up after timeout_s:
+    # without it a stdio server that never answers would hang its check loop forever.
+    read_timeout = timedelta(seconds=timeout_s)
     if cfg.transport == TransportType.SSE:
         async with sse_client(
             cfg.url, headers=headers, timeout=timeout_s, httpx_client_factory=_http_client
-        ) as (read, write), ClientSession(read, write) as session:
+        ) as (read, write), ClientSession(read, write, read_timeout) as session:
             yield session
     elif cfg.transport == TransportType.STDIO:
+        # No shell: the command is exec'd directly with its argv. The SDK passes only a
+        # small allowlist of the parent environment (HOME, PATH, ...) plus ``env``, so
+        # mcpsonar's own secrets do not leak into the child process.
         params = StdioServerParameters(
             command=cfg.command, args=cfg.args, env=(cfg.env or None)
         )
-        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        async with (
+            stdio_client(params) as (read, write),
+            ClientSession(read, write, read_timeout) as session,
+        ):
             yield session
     else:  # TransportType.HTTP -> Streamable HTTP
         timeout = httpx.Timeout(timeout_s)
         async with (
             _http_client(headers=headers, timeout=timeout) as http_client,
             streamable_http_client(cfg.url, http_client=http_client) as (read, write, _),
-            ClientSession(read, write) as session,
+            ClientSession(read, write, read_timeout) as session,
         ):
             yield session
 
 
-async def _probe_tools(
-    session: ClientSession, probes: list[ToolProbe], timeout_s: float
-) -> tuple[int, int, list[str]]:
-    """Test-call each configured tool with its configured arguments to prove it responds.
-    Returns (tools_checked, tools_failed, failure_notes).
+MAX_TOOL_PAGES = 100
 
-    A tool counts as failed if the call raises (transport/protocol error, unknown tool) or
-    returns ``isError``. Configure representative ``arguments`` per tool so an error is a
-    real malfunction signal rather than a "you called it wrong" artifact.
+
+class PaginationError(Exception):
+    """``tools/list`` pagination that never ends (cursor loop or absurd page count)."""
+
+
+async def list_all_tools(session: ClientSession, max_pages: int = MAX_TOOL_PAGES) -> list[Tool]:
+    """Every tool the server exposes, following ``nextCursor`` across pages.
+
+    Inspecting only the first page would let a tool on page 2 change (or be poisoned)
+    unseen. A repeated cursor or more than ``max_pages`` pages raises
+    :class:`PaginationError` rather than looping forever or returning a partial list.
     """
+    tools: list[Tool] = []
+    cursor: str | None = None
+    seen: set[str] = set()
+    for _ in range(max_pages):
+        params = PaginatedRequestParams(cursor=cursor) if cursor is not None else None
+        page = await session.list_tools(params=params)
+        tools.extend(page.tools)
+        cursor = page.nextCursor
+        if not cursor:
+            return tools
+        if cursor in seen:
+            raise PaginationError(f"tools/list returned cursor {cursor[:40]!r} twice")
+        seen.add(cursor)
+    raise PaginationError(f"tools/list did not end after {max_pages} pages")
+
+
+def _is_destructive(tool: Tool) -> bool:
+    ann = tool.annotations
+    return bool(ann and ann.destructiveHint is True and ann.readOnlyHint is not True)
+
+
+async def _probe_tools(
+    session: ClientSession, probes: list[ToolProbe], timeout_s: float, tools: list[Tool]
+) -> tuple[int, int, list[str], list[str]]:
+    """Test-call each configured tool with its configured arguments to prove it responds.
+    Returns (tools_checked, tools_failed, failure_notes, skipped_notes).
+
+    Only tools listed in ``tools_to_test`` are ever called, one at a time: never a tool
+    just because it exists or its name looks harmless. A tool counts as failed if the call
+    raises or returns ``isError``, or if the server no longer lists it (it is then not
+    called at all). A tool whose annotations declare it destructive is skipped unless its
+    probe sets ``allow_destructive``. Annotations are hints from the server, not
+    guarantees: a malicious server can mislabel a destructive tool, so only probe tools you
+    know to be safe to call repeatedly. Configure representative ``arguments`` so an error
+    is a real malfunction signal rather than a "you called it wrong" artifact.
+    """
+    by_name = {t.name: t for t in tools}
     checked = 0
     failed = 0
     notes: list[str] = []
+    skipped: list[str] = []
     for probe in probes:
+        tool = by_name.get(probe.name)
+        if tool is not None and _is_destructive(tool) and not probe.allow_destructive:
+            skipped.append(f"{probe.name} (annotated destructive; set allow_destructive "
+                           "to probe it anyway)")
+            continue
         checked += 1
+        if tool is None:
+            failed += 1
+            notes.append(f"{probe.name}: not listed by the server (not called)")
+            continue
         try:
             result = await session.call_tool(
                 probe.name,
                 arguments=probe.arguments,
-                read_timeout_seconds=timedelta(seconds=timeout_s),
+                read_timeout_seconds=timedelta(seconds=probe.timeout_seconds or timeout_s),
             )
             if result.isError:
                 failed += 1
                 notes.append(f"{probe.name}: tool returned an error result")
         except Exception as exc:  # unknown tool, bad args, transport error, timeout
+            raise_if_cancelling(exc)
             failed += 1
             notes.append(f"{probe.name}: {type(exc).__name__}")
-    return checked, failed, notes
+    return checked, failed, notes, skipped
 
 
 def _classify(
@@ -152,6 +213,7 @@ def _classify(
     tools_failed: int,
     tool_notes: list[str],
     validation_issues: list[str],
+    skipped_probes: Sequence[str] = (),
 ) -> tuple[CheckStatus, str | None]:
     """Map raw signals to a status + human-readable detail.
 
@@ -193,6 +255,8 @@ def _classify(
     # Always surface tool-level errors in detail, even when they drove the classification.
     if tool_notes:
         reasons.append("tool errors: " + "; ".join(tool_notes))
+    if skipped_probes:
+        reasons.append("probes skipped: " + "; ".join(skipped_probes))
 
     if is_down:
         status = CheckStatus.DOWN
@@ -304,16 +368,41 @@ async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
     The event detail is scrubbed of the server's credentials: it is stored, shown in the
     dashboard and pushed to webhooks/Uptime Kuma, and transport errors quote the URL.
     """
-    outcome = await _run_check(server_id, cfg)
+    budget = check_budget_s(cfg)
+    try:
+        async with asyncio.timeout(budget):
+            outcome = await _run_check(server_id, cfg)
+    except TimeoutError:
+        # Belt and braces over the per-request timeouts: whatever hangs (a stdio process
+        # that never answers, a probe), the check ends and the loop keeps running.
+        outcome = CheckOutcome(
+            CheckEvent(
+                server_id=server_id,
+                status=CheckStatus.DOWN,
+                latency_ms=0.0,
+                detail=f"check did not complete within {budget:.0f}s (server hung?)",
+            )
+        )
     outcome.event.detail = scrub(outcome.event.detail, secret_values(cfg))
     return outcome
 
 
+def request_timeout_s(cfg: ServerConfig) -> float:
+    """Per-request timeout: enough headroom to *observe* a down-by-latency result rather
+    than aborting a slow-but-alive server early."""
+    return cfg.thresholds.latency_down_ms / 1000.0 + 5.0
+
+
+def check_budget_s(cfg: ServerConfig) -> float:
+    """Upper bound for a whole check: connect + initialize + listing + every probe."""
+    t = request_timeout_s(cfg)
+    probes = sum((p.timeout_seconds or t) for p in cfg.tools_to_test)
+    return 3 * t + probes
+
+
 async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
     thresholds = cfg.thresholds
-    # Give the transport enough headroom to actually observe a "down due to latency" result
-    # rather than aborting a slow-but-alive server early.
-    timeout_s = thresholds.latency_down_ms / 1000.0 + 5.0
+    timeout_s = request_timeout_s(cfg)
     t0 = perf_counter()
 
     try:
@@ -323,10 +412,14 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
             latency_ms = (perf_counter() - start) * 1000.0
 
             spec_version = init.protocolVersion or None
-            tools: list[Tool] = (await session.list_tools()).tools
+            pagination_issue: str | None = None
+            try:
+                tools: list[Tool] = await list_all_tools(session)
+            except PaginationError as exc:
+                tools, pagination_issue = [], str(exc)
 
-            tools_checked, tools_failed, tool_notes = await _probe_tools(
-                session, cfg.tools_to_test, timeout_s
+            tools_checked, tools_failed, tool_notes, skipped = await _probe_tools(
+                session, cfg.tools_to_test, timeout_s, tools
             )
 
             # Version-aware validation: common rules always, version rules only if known.
@@ -337,9 +430,12 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
                 issues = issues + validator.validate(init, tools)
             else:
                 spec_version_supported = False  # informational only; never changes status
+            if pagination_issue:
+                issues.append(pagination_issue)
 
             status, detail = _classify(
-                latency_ms, thresholds, tools_checked, tools_failed, tool_notes, issues
+                latency_ms, thresholds, tools_checked, tools_failed, tool_notes, issues,
+                skipped,
             )
 
             event = CheckEvent(
@@ -353,7 +449,9 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
                 spec_version_supported=spec_version_supported,
                 detail=detail,
             )
-            return CheckOutcome(event, [normalize_tool(t) for t in tools])
+            # An incomplete listing must not be diffed: every unseen tool would look removed.
+            definitions = None if pagination_issue else [normalize_tool(t) for t in tools]
+            return CheckOutcome(event, definitions)
 
     except Exception as exc:  # connect failure, handshake failure, timeout, etc.
         raise_if_cancelling(exc)

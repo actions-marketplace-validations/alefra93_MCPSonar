@@ -32,9 +32,30 @@ def normalize_tool(tool: Tool | dict[str, Any]) -> dict[str, Any]:
     return {k: data[k] for k in PINNED_FIELDS if data.get(k) is not None}
 
 
+def canonicalize(value: Any) -> Any:
+    """Remove differences that carry no meaning, so they don't look like changes.
+
+    Key order is already irrelevant (fingerprints sort keys). JSON Schema ``required`` is a
+    *set* of property names, so its order is normalized too. Everything else, including the
+    order of ``enum`` values and of list items in general, is kept as-is.
+    """
+    if isinstance(value, dict):
+        out = {k: canonicalize(v) for k, v in value.items()}
+        req = out.get("required")
+        if isinstance(req, list) and all(isinstance(r, str) for r in req):
+            out["required"] = sorted(set(req))
+        return out
+    if isinstance(value, list):
+        return [canonicalize(v) for v in value]
+    return value
+
+
 def fingerprint(definition: dict[str, Any]) -> str:
-    """Stable SHA-256 of a normalized definition (key order independent)."""
-    canonical = json.dumps(definition, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """Stable SHA-256 of a normalized definition (key order and ``required`` order
+    independent)."""
+    canonical = json.dumps(
+        canonicalize(definition), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -66,7 +87,9 @@ def diff_tools(
         elif new is None:
             changes.append(ToolChange("removed", name, before=old))
         elif fingerprint(old) != fingerprint(new):
-            fields = [f for f in PINNED_FIELDS if old.get(f) != new.get(f)]
+            fields = [
+                f for f in PINNED_FIELDS if canonicalize(old.get(f)) != canonicalize(new.get(f))
+            ]
             changes.append(ToolChange("changed", name, fields=fields, before=old, after=new))
     return changes
 

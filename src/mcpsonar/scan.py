@@ -21,7 +21,13 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from .check_engine import _find_http_error, _format_exc, _open_session, raise_if_cancelling
+from .check_engine import (
+    _find_http_error,
+    _format_exc,
+    _open_session,
+    list_all_tools,
+    raise_if_cancelling,
+)
 from .lint import SEVERITY_ORDER, Finding, lint_tools
 from .models import ServerConfig, TransportType
 from .redact import redact_url, scrub, secret_values
@@ -97,7 +103,7 @@ async def scan(cfg: ServerConfig, label: str, timeout_s: float = 20.0) -> ScanRe
             if init.serverInfo:
                 result.server_name = init.serverInfo.name
                 result.server_version = init.serverInfo.version
-            tools = (await session.list_tools()).tools
+            tools = await list_all_tools(session)
     except Exception as exc:
         raise_if_cancelling(exc)
         http_err = _find_http_error(exc)

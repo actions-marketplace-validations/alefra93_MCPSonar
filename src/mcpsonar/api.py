@@ -14,7 +14,13 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
-from .check_engine import _format_exc, _open_session
+from .check_engine import (
+    _format_exc,
+    _open_session,
+    check_budget_s,
+    list_all_tools,
+    request_timeout_s,
+)
 from .lint import lint_tools
 from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
@@ -129,11 +135,13 @@ def register_api(
         if server is None:
             raise HTTPException(404, "server not found")
         cfg = server.to_server_config()
-        timeout_s = cfg.thresholds.latency_down_ms / 1000.0 + 5.0
         try:
-            async with _open_session(cfg, timeout_s) as session:
+            async with (
+                asyncio.timeout(check_budget_s(cfg)),
+                _open_session(cfg, request_timeout_s(cfg)) as session,
+            ):
                 await session.initialize()
-                tools = (await session.list_tools()).tools
+                tools = await list_all_tools(session)
         except Exception as exc:
             detail = scrub(_format_exc(exc), secret_values(cfg))
             raise HTTPException(502, f"could not list tools: {detail}") from exc

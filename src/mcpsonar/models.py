@@ -234,6 +234,17 @@ class ToolProbe(BaseModel):
         default=None,
         description="Arguments passed to call_tool. None calls the tool with no arguments.",
     )
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Timeout for this call (default: the server's request timeout).",
+    )
+    allow_destructive: bool = Field(
+        default=False,
+        description="Probe the tool even if its annotations declare it destructive. "
+        "Annotations are the server's own claims, not guarantees: only probe tools that are "
+        "safe to call repeatedly.",
+    )
 
 
 class ServerConfig(BaseModel):

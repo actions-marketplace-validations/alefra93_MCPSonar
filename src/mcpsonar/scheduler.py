@@ -50,6 +50,9 @@ class Scheduler:
             timeout=http_timeout, transport=policy_transport(), max_redirects=5
         )
         self._tasks: dict[str, asyncio.Task] = {}
+        # One check at a time per server: "Check now", the review re-check and the loop
+        # would otherwise diff the same tool snapshot concurrently and record changes twice.
+        self._check_locks: dict[str, asyncio.Lock] = {}
         self._adapters: dict[str, list[BaseAdapter]] = {}
         self._retention_days = retention_days
         self._prune_interval_s = prune_interval_s
@@ -104,6 +107,7 @@ class Scheduler:
     async def remove(self, server_id: str) -> None:
         task = self._tasks.pop(server_id, None)
         self._adapters.pop(server_id, None)
+        self._check_locks.pop(server_id, None)
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -120,7 +124,9 @@ class Scheduler:
 
     async def run_once(self, server: MonitoredServer) -> CheckEvent:
         """Check a server now: analyse, persist, update live state and notify adapters."""
-        event = await process_check(self._storage, server.id, server.to_server_config())
+        lock = self._check_locks.setdefault(server.id, asyncio.Lock())
+        async with lock:
+            event = await process_check(self._storage, server.id, server.to_server_config())
         self._store.update(event)
         logger.info(
             "%s (%s) -> %s (%.0fms, spec=%s)%s",
