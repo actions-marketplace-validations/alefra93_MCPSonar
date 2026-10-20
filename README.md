@@ -235,8 +235,12 @@ mcpsonar run                  # dashboard at http://127.0.0.1:8675, db at ./mcps
 
 ### First run
 
-1. Open **http://localhost:8675** (Docker) or **http://127.0.0.1:8675** (source).
-2. Create your **admin account** on the login page (password ≥ 8 characters).
+1. Find the **one-time setup link** in the log: `docker compose logs mcpsonar` (Docker) or the
+   terminal running `mcpsonar run`. It looks like
+   `http://127.0.0.1:8675/login?setup_token=…` (the host inside the container is shown; use
+   the address you actually reach it on). The token stops strangers from claiming a freshly
+   started instance; set your own with `MCPSONAR_SETUP_TOKEN`.
+2. Create your **admin account** there (password ≥ 8 characters).
 3. Click **+ Add server**, enter an MCP server's URL (or a stdio command) — you're monitoring.
 
 No config file is required; servers are managed from the UI.
@@ -258,7 +262,16 @@ No config file is required; servers are managed from the UI.
 | `--db PATH` | `MCPSONAR_DB` | `./mcpsonar.db` | SQLite database location. |
 | `--retention-days N` | `MCPSONAR_RETENTION_DAYS` | `7` | Drop history older than N days (`0` disables pruning). |
 | `--config FILE` | | — | Seed servers from a YAML file on first run (only when the DB is empty). |
-| `--no-auth` | | off | Disable the login (only behind a trusted proxy / on localhost). |
+| `--no-auth` | | off | Disable the login (only on localhost or behind an authenticating proxy). |
+| `--allowed-host H` | `MCPSONAR_ALLOWED_HOSTS` | any (login on) / loopback (`--no-auth`) | Host names this instance answers to; blocks DNS rebinding. |
+| `--trusted-origin O` | `MCPSONAR_TRUSTED_ORIGINS` | — | Public origin when a reverse proxy rewrites `Host`. |
+| `--cookie-secure` | `MCPSONAR_COOKIE_SECURE` | `auto` | `Secure` cookie flag: `auto` (when served over HTTPS) / `always` / `never`. |
+| `--allow-stdio-api` | `MCPSONAR_ALLOW_STDIO_API` | off | With `--no-auth`, still allow adding stdio servers from the UI/API. |
+
+Secrets and network policy are set through the environment only — `MCPSONAR_SETUP_TOKEN`,
+`MCPSONAR_METRICS_TOKEN`, `MCPSONAR_BLOCK_PRIVATE_NETWORKS`, `MCPSONAR_ALLOW_LINK_LOCAL`,
+`MCPSONAR_OUTBOUND_ALLOW` / `_DENY`. Every option is described in
+[docs/configuration.md](docs/configuration.md).
 
 ### Updating
 
@@ -270,11 +283,23 @@ pip install -e .               # from source (inside the venv)
 
 ## Using it
 
-### Authentication
+### Authentication and security
 
-A single admin login protects the dashboard; the first visit creates the account. Sessions are
-signed cookies (7-day expiry); passwords are PBKDF2-hashed. `/metrics` stays open for
-Prometheus. `--no-auth` disables the login — only on localhost or behind a trusted proxy.
+A single admin login protects the dashboard. The account is created once, with the setup
+token printed at startup. Sessions are server-side (7-day expiry, revoked on logout), cookies
+are `HttpOnly`/`SameSite=Lax` and `Secure` over HTTPS, passwords are PBKDF2-SHA256 (600k
+iterations), and repeated failed logins are throttled. Changes from another website
+(CSRF) and DNS-rebinding attempts are refused even with `--no-auth`.
+
+`/metrics` stays open for Prometheus unless you set `MCPSONAR_METRICS_TOKEN` (then scrape
+with `Authorization: Bearer <token>`). `--no-auth` disables the login — only on localhost or
+behind an authenticating proxy; it also refuses new stdio servers over the API (they run
+commands on the host) unless `--allow-stdio-api` is given.
+
+Credentials you configure (headers, env, API keys in URLs, webhook URLs) are **never shown
+back**: the API, the dashboard and exports mask them, and error details and logs are
+scrubbed. Outbound connections never reach cloud-metadata or link-local addresses. See
+[SECURITY.md](SECURITY.md) for the threat model and a safe production setup.
 
 ### Managing servers
 
@@ -285,7 +310,9 @@ Everything is done from the dashboard or the JSON API — no restart required:
 - **Tools** lists the tools exposed right now, with any poisoning findings.
 - **Changes** shows tool changes vs. the pinned definitions; **Approve** trusts the new ones.
 - **History** shows uptime, latency, the learned baseline, shifts and anomalies (1h / 6h / 24h / all).
-- **Export / Import** all servers as YAML.
+- **Export / Import** all servers as YAML. Exports mask credentials unless you ask for
+  `GET /api/export?include_secrets=true`; for backups, copy the SQLite file
+  ([docs/configuration.md](docs/configuration.md#backups)).
 
 ### Transports
 
@@ -294,6 +321,9 @@ Everything is done from the dashboard or the JSON API — no restart required:
 - **stdio** — a local server mcpsonar launches per check: `command` (e.g. `npx`), `args`,
   optional `env`. The runtime must exist where mcpsonar runs (the Docker image is
   Python-only). On Windows enter `npx` bare — it resolves `npx.cmd` via PATH.
+  **This runs that command on your machine** with mcpsonar's permissions (no shell; only a
+  minimal set of environment variables plus `env` is passed). Monitor stdio servers you
+  would also be willing to run yourself, or run mcpsonar in a container.
 
 ### API
 
@@ -315,10 +345,11 @@ servers:
     headers:
       Authorization: "Bearer <token>"
     check_interval_seconds: 60
-    tools_to_test:               # bare name, or {name, arguments}
-      - ping
+    tools_to_test:               # bare name, or {name, arguments, timeout_seconds}
+      - ping                     # only listed tools are ever called — never inferred
       - name: search
         arguments: { query: "healthcheck" }
+        timeout_seconds: 5
     thresholds:
       latency_degraded_ms: 2000
       latency_down_ms: 10000
@@ -368,6 +399,12 @@ servers:
 
 An unrecognized spec version is informational only (`spec_version_supported: false`).
 
+**Tool probes are opt-in.** mcpsonar only lists tools unless you name some in
+`tools_to_test`. It never calls a tool the server no longer lists, and skips one whose
+annotations declare it destructive unless the probe sets `allow_destructive: true`.
+Annotations are the server's own claims, not guarantees, so only probe tools that are safe
+to call over and over (ping, status, read-only search).
+
 ## Development
 
 ```bash
@@ -383,11 +420,13 @@ validators are never touched. Adding an output = one class implementing `BaseAda
 
 ## Roadmap
 
-- Per-tool latency baselines (today: the handshake)
-- Response drift: tools that still answer, but differently (shape / size of results)
-- Support for the MCP Python SDK 2.x (currently pinned to `mcp<2`)
-- Slack / Discord / email adapters, multi-user roles
-- PyPI release (`pip install mcpsonar`)
+See [docs/product-roadmap.md](docs/product-roadmap.md). In short:
+
+- **v0.6** — security hardening (in progress on this branch; see the [audit](docs/engineering-audit.md))
+- **v0.7** — per-tool latency, response drift, better anomaly suppression, Slack/Discord/email
+- **v0.8** — PyPI, SARIF output, documented detection rules, onboarding
+- **v0.9** — roles, audit history, an exportable *Trust Report*, field validation
+- **v1.0** — stable interfaces and upgrades, external security review, MCP spec 2026-07-28 / SDK 2.x
 
 Ideas and PRs welcome — especially new poisoning rules with a real-world example.
 
