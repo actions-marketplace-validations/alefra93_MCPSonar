@@ -26,6 +26,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.types import InitializeResult, Tool
 
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
+from .netpolicy import policy_transport
 from .redact import scrub, secret_values
 from .tooldefs import normalize_tool
 from .validators import get_validator, run_minimal_common_validation
@@ -39,18 +40,45 @@ def _ssl_context() -> ssl.SSLContext:
     return httpx.create_ssl_context()
 
 
+MAX_REDIRECTS = 5
+
+
+def _origin(url: httpx.URL) -> tuple[str, str, int | None]:
+    return url.scheme, url.host, url.port
+
+
 def _http_client(
     headers: dict[str, str] | None = None,
     timeout: httpx.Timeout | None = None,
     auth: httpx.Auth | None = None,
 ) -> httpx.AsyncClient:
-    """Same defaults as the SDK's ``create_mcp_http_client``, with the shared TLS context."""
+    """Same defaults as the SDK's ``create_mcp_http_client``, plus:
+
+    * the shared TLS context;
+    * the outbound connection policy (:mod:`mcpsonar.netpolicy`) on every connection,
+      redirects included;
+    * credentials stay on the origin they were configured for: httpx only drops
+      ``Authorization`` on a cross-origin redirect, so every *configured* header (``X-API-Key``
+      and friends) is removed from requests that left the first request's origin.
+    """
+    secret_names = list(headers or {})
+    first_origin: list[tuple[str, str, int | None]] = []
+
+    async def _keep_credentials_on_origin(request: httpx.Request) -> None:
+        if not first_origin:
+            first_origin.append(_origin(request.url))
+        elif _origin(request.url) != first_origin[0]:
+            for name in secret_names:
+                request.headers.pop(name, None)
+
     return httpx.AsyncClient(
         follow_redirects=True,
+        max_redirects=MAX_REDIRECTS,
         headers=headers,
         timeout=timeout if timeout is not None else httpx.Timeout(30.0, read=300.0),
         auth=auth,
-        verify=_ssl_context(),
+        transport=policy_transport(verify=_ssl_context()),
+        event_hooks={"request": [_keep_credentials_on_origin]},
     )
 
 

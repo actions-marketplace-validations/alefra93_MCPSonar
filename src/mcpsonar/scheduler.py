@@ -26,6 +26,7 @@ from .adapters.base import BaseAdapter
 from .check_engine import raise_if_cancelling
 from .models import CheckEvent, MonitoredServer
 from .monitor import process_check
+from .netpolicy import policy_transport
 from .redact import scrub, secret_values
 from .state import StateStore
 from .storage import Storage
@@ -44,7 +45,10 @@ class Scheduler:
     ) -> None:
         self._storage = storage
         self._store = store
-        self._client = httpx.AsyncClient(timeout=http_timeout)
+        # Webhook/Kuma deliveries obey the same outbound policy as checks.
+        self._client = httpx.AsyncClient(
+            timeout=http_timeout, transport=policy_transport(), max_redirects=5
+        )
         self._tasks: dict[str, asyncio.Task] = {}
         self._adapters: dict[str, list[BaseAdapter]] = {}
         self._retention_days = retention_days
