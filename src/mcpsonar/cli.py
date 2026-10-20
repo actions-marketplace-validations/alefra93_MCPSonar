@@ -282,8 +282,8 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO if long_running else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("httpcore2").setLevel(logging.WARNING)
     # The SDK logs per-session chatter (and, for one-shot commands, server stderr noise).
     logging.getLogger("mcp").setLevel(logging.WARNING if long_running else logging.CRITICAL)
 

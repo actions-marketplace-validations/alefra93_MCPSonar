@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 
 from .. import __version__
 from ..netpolicy import OutboundPolicy
@@ -67,14 +67,15 @@ def check_python() -> Check:
 def check_sdk() -> Check:
     ver = dependency_version("mcp")
     if ver is None:
-        return Check("MCP SDK", "fail", "package 'mcp' not installed", "pip install 'mcp>=1.28,<2'")
+        return Check("MCP SDK", "fail", "package 'mcp' not installed", "pip install 'mcp>=2.3,<3'")
     major_minor = tuple(int(p) for p in ver.split(".")[:2] if p.isdigit())
-    if major_minor >= (2, 0):
-        return Check("MCP SDK", "fail", f"mcp {ver}: 2.x is not supported yet",
-                     "pip install 'mcp>=1.28,<2' (see docs/adr/0001 for the 2.x plan)")
-    if major_minor < (1, 28):
-        return Check("MCP SDK", "fail", f"mcp {ver} is too old", "pip install -U 'mcp>=1.28,<2'")
-    return Check("MCP SDK", "ok", f"mcp {ver}")
+    if major_minor >= (3, 0):
+        return Check("MCP SDK", "fail", f"mcp {ver}: 3.x is not supported yet",
+                     "pip install 'mcp>=2.3,<3'")
+    if major_minor < (2, 3):
+        return Check("MCP SDK", "fail", f"mcp {ver} is too old (no 2026-07-28 support)",
+                     "pip install -U 'mcp>=2.3,<3'")
+    return Check("MCP SDK", "ok", f"mcp {ver} (protocol 2024-11-05 … 2026-07-28)")
 
 
 def check_config(path: str | None) -> Check:
@@ -138,25 +139,28 @@ def check_tls() -> Check:
             return Check("TLS", "fail", f"{var} points to a missing path",
                          f"Fix or unset {var}; HTTPS checks will fail otherwise.")
     try:
-        ctx = httpx.create_ssl_context()
+        ctx = httpx2.create_ssl_context()
     except (ssl.SSLError, OSError) as exc:
         return Check("TLS", "fail", f"cannot build a TLS context: {exc}",
                      "Reinstall certifi (pip install -U certifi) or fix SSL_CERT_FILE.")
-    n = len(ctx.get_ca_certs()) or "system"
-    return Check("TLS", "ok", f"CA bundle loaded ({n} certificates)")
+    if type(ctx).__module__.startswith("truststore"):  # httpx2 on Windows/macOS
+        detail = "certificates verified with the operating-system trust store"
+    else:
+        detail = f"CA bundle loaded ({len(ctx.get_ca_certs())} certificates)"
+    return Check("TLS", "ok", detail)
 
 
 def check_instance(url: str) -> list[Check]:
     try:
-        r = httpx.get(url.rstrip("/") + "/api/auth/status", timeout=3.0)
+        r = httpx2.get(url.rstrip("/") + "/api/auth/status", timeout=3.0)
         r.raise_for_status()
         status = r.json()
         if not isinstance(status, dict):
             raise TypeError("unexpected response body")
-    except httpx.ConnectError:
+    except httpx2.ConnectError:
         return [Check("Local instance", "skip", f"nothing listening at {url} "
                                                 "(fine if you only use scan/tools/risks)")]
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
+    except (httpx2.HTTPError, ValueError, TypeError) as exc:
         return [Check("Local instance", "fail", f"{url} did not answer like MCPSonar: {exc}",
                       "Check --url / MCPSONAR_URL, or the instance's log.")]
     checks = [Check("Local instance", "ok",

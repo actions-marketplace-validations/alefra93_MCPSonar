@@ -25,7 +25,7 @@ from .models import ServerConfig, TransportType
 from .output import Style as _Style
 from .redact import redact_url
 from .services import inspect_server
-from .tooldefs import ToolChange, diff_tools, fingerprint
+from .tooldefs import ToolChange, diff_tools, fingerprint, renormalize
 
 LOCK_VERSION = 1
 
@@ -137,7 +137,9 @@ def read_lock(path: Path) -> dict[str, dict[str, Any]]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("mcpsonar_lock") != LOCK_VERSION:
         raise SystemExit(f"{path}: not an mcpsonar lockfile (or unsupported version)")
-    return {name: entry["definition"] for name, entry in data["tools"].items()}
+    # Re-normalized like a fresh listing, so a lockfile written under another SDK version
+    # does not report drift for differences the SDK no longer represents.
+    return {name: renormalize(entry["definition"]) for name, entry in data["tools"].items()}
 
 
 # --------------------------------------------------------------------------- #

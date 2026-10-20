@@ -19,7 +19,7 @@ import os
 from typing import Any, Self
 from urllib.parse import quote, urlsplit
 
-import httpx
+import httpx2
 
 from .. import __version__
 from ..output import Output
@@ -27,7 +27,7 @@ from ..output import Output
 DEFAULT_URL = "http://127.0.0.1:8675"
 
 #: Tests inject an in-process transport (ASGI app) here; never set in normal use.
-TRANSPORT_OVERRIDE: httpx.AsyncBaseTransport | None = None
+TRANSPORT_OVERRIDE: httpx2.AsyncBaseTransport | None = None
 
 
 class RemoteError(Exception):
@@ -67,8 +67,8 @@ class Remote:
         headers = {"User-Agent": f"mcpsonar-cli/{__version__}", "Accept": "application/json"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
-        self._client = httpx.AsyncClient(
-            base_url=self.url, headers=headers, timeout=httpx.Timeout(30.0, connect=5.0),
+        self._client = httpx2.AsyncClient(
+            base_url=self.url, headers=headers, timeout=httpx2.Timeout(30.0, connect=5.0),
             transport=TRANSPORT_OVERRIDE,
         )
 
@@ -81,13 +81,13 @@ class Remote:
     async def request(self, method: str, path: str, **kwargs: Any) -> Any:
         try:
             r = await self._client.request(method, path, **kwargs)
-        except httpx.ConnectError as exc:
+        except httpx2.ConnectError as exc:
             raise RemoteError(
                 f"no MCPSonar instance at {self.url} (start one with `mcpsonar run`, or set "
                 "MCPSONAR_URL / --url)") from exc
-        except httpx.TimeoutException as exc:
+        except httpx2.TimeoutException as exc:
             raise RemoteError(f"{self.url} did not answer in time") from exc
-        except httpx.HTTPError as exc:
+        except httpx2.HTTPError as exc:
             raise RemoteError(f"request to {self.url} failed: {exc}") from exc
         if r.status_code == 401:
             hint = ("the token was rejected (expired or revoked?)" if self.token else

@@ -18,20 +18,21 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from time import perf_counter
 from typing import Any
 
 from .check_engine import (
-    _find_http_error,
+    DISCOVER_PROBE_TIMEOUT_S,
+    HttpLog,
     _format_exc,
     _open_session,
     check_budget_s,
     list_all_tools,
+    negotiate,
     raise_if_cancelling,
     request_timeout_s,
 )
 from .lint import Finding, lint_tools
-from .models import ServerConfig
+from .models import ServerConfig, TransportType
 from .redact import scrub, secret_values
 from .tooldefs import index_tools, normalize_tool
 
@@ -58,7 +59,8 @@ class Inspection:
 async def inspect_server(
     cfg: ServerConfig, label: str, timeout_s: float | None = None
 ) -> Inspection:
-    """Connect once, run ``initialize``, list *every* tool (all pages) and lint them.
+    """Connect once, negotiate the protocol era (``server/discover`` or ``initialize``),
+    list *every* tool (all pages) and lint them.
 
     ``timeout_s`` bounds each request (default: the server's own request timeout); the whole
     inspection is bounded too, so a hung server can never hang a caller. Never raises for a
@@ -66,28 +68,33 @@ async def inspect_server(
     """
     result = Inspection(target=label)
     per_request = timeout_s if timeout_s is not None else request_timeout_s(cfg)
-    budget = 3 * per_request if timeout_s is not None else check_budget_s(cfg)
+    budget = (
+        3 * per_request + DISCOVER_PROBE_TIMEOUT_S if timeout_s is not None
+        else check_budget_s(cfg)
+    )
+    log = HttpLog()
     try:
-        async with asyncio.timeout(budget), _open_session(cfg, per_request) as session:
-            start = perf_counter()
-            init = await session.initialize()
-            result.latency_ms = (perf_counter() - start) * 1000
-            result.spec_version = init.protocolVersion
-            if init.serverInfo:
-                result.server_name = init.serverInfo.name
-                result.server_version = init.serverInfo.version
+        async with asyncio.timeout(budget), _open_session(cfg, per_request, log) as session:
+            handshake = await negotiate(session, cfg.transport == TransportType.STDIO)
+            result.latency_ms = handshake.latency_ms
+            result.spec_version = handshake.protocol_version
+            if handshake.server_info:
+                result.server_name = handshake.server_info.name
+                result.server_version = handshake.server_info.version
             tools = await list_all_tools(session)
     except TimeoutError:
         result.error = f"no complete answer within {budget:.0f}s"
         return result
     except Exception as exc:
         raise_if_cancelling(exc)
-        http_err = _find_http_error(exc)
-        if http_err is not None and http_err.response.status_code in (401, 403):
+        if log.status in (401, 403):
             result.auth_required = True
-            result.error = f"authentication required ({http_err.response.status_code})"
+            result.error = f"authentication required ({log.status})"
+        elif log.status == 429:
+            retry = log.headers.get("retry-after")
+            result.error = "rate limited (429)" + (f", retry after {retry}s" if retry else "")
         else:
-            result.error = scrub(_format_exc(exc), secret_values(cfg))
+            result.error = scrub(_format_exc(exc) + log.describe(), secret_values(cfg))
         return result
     definitions = [normalize_tool(t) for t in tools]
     result.tools = index_tools(definitions)

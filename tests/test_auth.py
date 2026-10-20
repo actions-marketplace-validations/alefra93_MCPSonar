@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 
-from httpx import ASGITransport, AsyncClient
+from httpx2 import ASGITransport, AsyncClient
 
 from mcpsonar.auth import (
     COOKIE_NAME,

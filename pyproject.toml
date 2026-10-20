@@ -22,8 +22,10 @@ classifiers = [
     "Topic :: Security",
 ]
 dependencies = [
-    "mcp>=1.28,<2",  # 2.x is a breaking rewrite (httpx2, snake_case types) — not yet supported
-    "httpx>=0.27",
+    # 2.x speaks every MCP revision: 2025-era servers through the initialize handshake,
+    # 2026-07-28 servers through server/discover (see docs/adr/0001-mcp-sdk-2.md).
+    "mcp>=2.3,<3",
+    "httpx2>=2.15",  # the HTTP stack mcp 2.x is built on; one stack, one outbound policy
     "pydantic>=2.6",
     "pyyaml>=6.0",
     "fastapi>=0.110",

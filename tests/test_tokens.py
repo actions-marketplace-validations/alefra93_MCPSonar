@@ -4,7 +4,7 @@ hashes, shown once, scoped read/write, revocable and expiring; a token can't min
 from __future__ import annotations
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx2 import ASGITransport, AsyncClient
 
 from mcpsonar.auth import API_TOKEN_PREFIX, token_digest
 from mcpsonar.dashboard import create_app

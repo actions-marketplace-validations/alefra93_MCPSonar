@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from httpx import ASGITransport
+from httpx2 import ASGITransport
 
 from mcpsonar.cli import _build_parser
 from mcpsonar.commands import _remote
@@ -162,7 +162,7 @@ async def test_token_over_plain_http_to_remote_host_warns(capsys, monkeypatch):
     monkeypatch.setattr(_remote, "TRANSPORT_OVERRIDE", None)
     monkeypatch.setenv("MCPSONAR_TOKEN", "mcps_x")
     args = _build_parser().parse_args(["status", "--url", "http://192.0.2.1:9"])
-    monkeypatch.setattr(_remote.httpx, "AsyncClient", _FailingClient)
+    monkeypatch.setattr(_remote.httpx2, "AsyncClient", _FailingClient)
     await args.handler(args)
     assert "plain HTTP" in capsys.readouterr().err
 
@@ -172,7 +172,7 @@ class _FailingClient:
         pass
 
     async def request(self, *a, **kw):
-        raise _remote.httpx.ConnectError("offline")
+        raise _remote.httpx2.ConnectError("offline")
 
     async def aclose(self):
         pass

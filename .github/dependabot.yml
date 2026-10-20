@@ -4,8 +4,8 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    # mcp 2.x is a breaking rewrite: evaluate it on purpose (see docs/product-roadmap.md),
-    # not through an automated bump.
+    # A new mcp major version is a deliberate migration with its own ADR (see
+    # docs/adr/0001-mcp-sdk-2.md), never an automated bump.
     ignore:
       - dependency-name: "mcp"
         update-types: ["version-update:semver-major"]
