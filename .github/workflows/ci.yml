@@ -56,7 +56,9 @@ jobs:
           python-version: "3.12"
       - run: pip install . pip-audit
       # Known-vulnerable versions of anything mcpsonar installs (PyPI advisory database).
-      - run: pip-audit --skip-editable
+      # A slow PyPI advisory API must not fail a build: longer socket timeout, and one retry
+      # (a real finding fails both attempts, so it still blocks the build).
+      - run: pip-audit --skip-editable --timeout 60 || (sleep 20 && pip-audit --skip-editable --timeout 60)
 
   docker:
     runs-on: ubuntu-latest
