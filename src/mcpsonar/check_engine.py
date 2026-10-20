@@ -26,6 +26,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.types import InitializeResult, Tool
 
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
+from .redact import scrub, secret_values
 from .tooldefs import normalize_tool
 from .validators import get_validator, run_minimal_common_validation
 
@@ -270,7 +271,17 @@ async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
 
 
 async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
-    """Like :func:`check_server`, but also returns the tool definitions that were listed."""
+    """Like :func:`check_server`, but also returns the tool definitions that were listed.
+
+    The event detail is scrubbed of the server's credentials: it is stored, shown in the
+    dashboard and pushed to webhooks/Uptime Kuma, and transport errors quote the URL.
+    """
+    outcome = await _run_check(server_id, cfg)
+    outcome.event.detail = scrub(outcome.event.detail, secret_values(cfg))
+    return outcome
+
+
+async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
     thresholds = cfg.thresholds
     # Give the transport enough headroom to actually observe a "down due to latency" result
     # rather than aborting a slow-but-alive server early.

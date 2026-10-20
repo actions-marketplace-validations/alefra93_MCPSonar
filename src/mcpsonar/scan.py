@@ -24,6 +24,7 @@ from typing import Any
 from .check_engine import _find_http_error, _format_exc, _open_session, raise_if_cancelling
 from .lint import SEVERITY_ORDER, Finding, lint_tools
 from .models import ServerConfig, TransportType
+from .redact import redact_url, scrub, secret_values
 from .tooldefs import ToolChange, diff_tools, fingerprint, index_tools, normalize_tool
 
 LOCK_VERSION = 1
@@ -72,7 +73,7 @@ def build_config(
         env_map = dict(e.split("=", 1) for e in env)
         cfg = ServerConfig(transport=TransportType.STDIO, command=argv[0], args=argv[1:],
                            env=env_map)
-        return cfg, stdio
+        return cfg, stdio  # printed as given: argv is visible to the user anyway
     if not target:
         raise SystemExit("mcpsonar scan: give a server URL, or --stdio \"command args\"")
     t = transport or ("sse" if target.rstrip("/").endswith("/sse") else "http")
@@ -80,7 +81,9 @@ def build_config(
     for h in headers:
         key, _, value = h.partition(":")
         hdrs[key.strip()] = value.strip()
-    return ServerConfig(transport=TransportType(t), url=target, headers=hdrs), target
+    # The label is printed (often into CI logs): never echo an API key embedded in the URL.
+    cfg = ServerConfig(transport=TransportType(t), url=target, headers=hdrs)
+    return cfg, redact_url(target) or target
 
 
 async def scan(cfg: ServerConfig, label: str, timeout_s: float = 20.0) -> ScanResult:
@@ -104,7 +107,7 @@ async def scan(cfg: ServerConfig, label: str, timeout_s: float = 20.0) -> ScanRe
                 "with -H 'Authorization: Bearer <token>'"
             )
         else:
-            result.error = _format_exc(exc)
+            result.error = scrub(_format_exc(exc), secret_values(cfg))
         return result
     definitions = [normalize_tool(t) for t in tools]
     result.tools = index_tools(definitions)

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -25,6 +26,7 @@ from .adapters.base import BaseAdapter
 from .check_engine import raise_if_cancelling
 from .models import CheckEvent, MonitoredServer
 from .monitor import process_check
+from .redact import scrub, secret_values
 from .state import StateStore
 from .storage import Storage
 
@@ -128,7 +130,7 @@ class Scheduler:
         adapters = self._adapters.get(server.id)
         if adapters is None:  # e.g. a paused server checked on demand
             adapters = build_push_adapters(server.to_server_config(), self._client)
-        await self._emit(server.id, event, adapters)
+        await self._emit(server.id, event, adapters, secret_values(server))
         return event
 
     async def _run_server(self, server: MonitoredServer) -> None:
@@ -143,12 +145,18 @@ class Scheduler:
             await asyncio.sleep(server.check_interval_seconds)
 
     async def _emit(
-        self, server_id: str, event: CheckEvent, adapters: list[BaseAdapter]
+        self,
+        server_id: str,
+        event: CheckEvent,
+        adapters: list[BaseAdapter],
+        secrets: Iterable[str] = (),
     ) -> None:
         for adapter in adapters:
             try:
                 await adapter.send(event)
             except Exception as exc:
+                # httpx errors quote the URL, and webhook URLs embed their token.
                 logger.warning(
-                    "adapter %s failed for %s: %s", adapter.name, server_id, exc
+                    "adapter %s failed for %s: %s", adapter.name, server_id,
+                    scrub(str(exc), secrets),
                 )

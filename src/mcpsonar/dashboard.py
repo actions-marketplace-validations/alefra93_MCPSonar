@@ -20,6 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from .adapters import CONTENT_TYPE, render_metrics
 from .api import register_api
 from .auth import CookieSecure, register_auth
+from .redact import redact_url
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
@@ -76,7 +77,7 @@ def create_app(
                 "name": s.name,
                 "enabled": s.enabled,
                 "transport": s.transport.value,
-                "target": s.url or s.command or "",
+                "target": redact_url(s.url) or s.command or "",
                 "event": snap[s.id].model_dump(mode="json") if s.id in snap else None,
                 "recent": [
                     {

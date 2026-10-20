@@ -18,6 +18,14 @@ from .check_engine import _format_exc, _open_session
 from .lint import lint_tools
 from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
+from .redact import (
+    RedactedValueError,
+    check_no_placeholders,
+    redact_config,
+    restore_secrets,
+    scrub,
+    secret_values,
+)
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
@@ -57,40 +65,46 @@ def register_api(
             return
         raise HTTPException(403, _STDIO_REFUSED)
 
+    def _secret_safe(cfg: ServerConfig, old: ServerConfig | None = None) -> ServerConfig:
+        try:
+            return restore_secrets(cfg, old)
+        except RedactedValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    # Reads never return credentials (headers, env, URL keys, webhook tokens): see redact.py.
+    # Writes accept the redacted placeholders back and keep the stored values.
     @app.get("/api/servers")
     async def list_servers():
         servers = await storage.list_servers()
-        return [s.model_dump(mode="json") for s in servers]
+        return [redact_config(s) for s in servers]
 
     @app.get("/api/servers/{server_id}")
     async def get_server(server_id: str):
         server = await storage.get_server(server_id)
         if server is None:
             raise HTTPException(404, "server not found")
-        return server.model_dump(mode="json")
+        return redact_config(server)
 
     @app.post("/api/servers", status_code=201)
     async def create_server(payload: ServerInput):
         _guard_stdio(payload)
-        server = await storage.create_server(
-            payload.name, payload.to_server_config(), enabled=payload.enabled
-        )
+        cfg = _secret_safe(payload.to_server_config())
+        server = await storage.create_server(payload.name, cfg, enabled=payload.enabled)
         scheduler.add(server)  # start checking immediately, no restart
-        return server.model_dump(mode="json")
+        return redact_config(server)
 
     @app.put("/api/servers/{server_id}")
     async def update_server(server_id: str, payload: ServerInput):
         existing = await storage.get_server(server_id)
         if existing is None:
             raise HTTPException(404, "server not found")
-        _guard_stdio(payload, existing)
-        server = await storage.update_server(
-            server_id, payload.name, payload.to_server_config(), enabled=payload.enabled
-        )
+        cfg = _secret_safe(payload.to_server_config(), existing.to_server_config())
+        _guard_stdio(cfg, existing)
+        server = await storage.update_server(server_id, payload.name, cfg, enabled=payload.enabled)
         if server is None:
             raise HTTPException(404, "server not found")
         await scheduler.update(server)  # restart its loop with the new config
-        return server.model_dump(mode="json")
+        return redact_config(server)
 
     @app.delete("/api/servers/{server_id}", status_code=204)
     async def delete_server(server_id: str):
@@ -121,7 +135,8 @@ def register_api(
                 await session.initialize()
                 tools = (await session.list_tools()).tools
         except Exception as exc:
-            raise HTTPException(502, f"could not list tools: {_format_exc(exc)}") from exc
+            detail = scrub(_format_exc(exc), secret_values(cfg))
+            raise HTTPException(502, f"could not list tools: {detail}") from exc
         definitions = [normalize_tool(t) for t in tools]
         findings = lint_tools(definitions)
         return [
@@ -214,15 +229,23 @@ def register_api(
         return [e.model_dump(mode="json") for e in events]
 
     @app.get("/api/export")
-    async def export_yaml() -> PlainTextResponse:
-        """Export all servers as a YAML config (same shape as the seed file)."""
+    async def export_yaml(include_secrets: bool = False) -> PlainTextResponse:
+        """Export all servers as a YAML config (same shape as the seed file).
+
+        Credentials are redacted unless ``include_secrets=true`` is asked for explicitly: an
+        export is a file people attach to issues and drop into chats. A full backup is
+        better taken from the SQLite file itself (see docs/configuration.md).
+        """
         servers = await storage.list_servers()
         out: dict = {"servers": {}}
         for s in servers:
             key = s.name
             if key in out["servers"]:  # keep names unique in the exported file
                 key = f"{s.name} ({s.id})"
-            out["servers"][key] = s.to_server_config().model_dump(mode="json")
+            cfg = s.to_server_config()
+            out["servers"][key] = (
+                cfg.model_dump(mode="json") if include_secrets else redact_config(cfg)
+            )
         text = yaml.safe_dump(out, sort_keys=False, allow_unicode=True)
         return PlainTextResponse(
             text,
@@ -238,8 +261,12 @@ def register_api(
             config = parse_config_text(raw.decode("utf-8"))
         except Exception as exc:
             raise HTTPException(400, f"invalid YAML config: {exc}") from exc
-        for cfg in config.servers.values():  # all-or-nothing: check before creating any
+        for name, cfg in config.servers.items():  # all-or-nothing: check before creating any
             _guard_stdio(cfg)
+            try:
+                check_no_placeholders(cfg)
+            except RedactedValueError as exc:
+                raise HTTPException(400, f"server '{name}': {exc}") from exc
         created = 0
         for name, cfg in config.servers.items():
             server = await storage.create_server(name=name, config=cfg)
