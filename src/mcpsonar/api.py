@@ -14,28 +14,13 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
-from .check_engine import (
-    _format_exc,
-    _open_session,
-    check_budget_s,
-    list_all_tools,
-    request_timeout_s,
-)
-from .lint import lint_tools
 from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
-from .redact import (
-    RedactedValueError,
-    check_no_placeholders,
-    redact_config,
-    restore_secrets,
-    scrub,
-    secret_values,
-)
+from .redact import RedactedValueError, check_no_placeholders, redact_config, restore_secrets
 from .scheduler import Scheduler
+from .services import inspect_server
 from .state import StateStore
 from .storage import Storage
-from .tooldefs import normalize_tool
 from .websec import read_limited_body
 
 MAX_HISTORY_LIMIT = 5000
@@ -134,28 +119,18 @@ def register_api(
         server = await storage.get_server(server_id)
         if server is None:
             raise HTTPException(404, "server not found")
-        cfg = server.to_server_config()
-        try:
-            async with (
-                asyncio.timeout(check_budget_s(cfg)),
-                _open_session(cfg, request_timeout_s(cfg)) as session,
-            ):
-                await session.initialize()
-                tools = await list_all_tools(session)
-        except Exception as exc:
-            detail = scrub(_format_exc(exc), secret_values(cfg))
-            raise HTTPException(502, f"could not list tools: {detail}") from exc
-        definitions = [normalize_tool(t) for t in tools]
-        findings = lint_tools(definitions)
+        found = await inspect_server(server.to_server_config(), server.name)
+        if found.error:
+            raise HTTPException(502, f"could not list tools: {found.error}")
         return [
             {
-                "name": d["name"],
+                "name": name,
                 "title": d.get("title"),
                 "description": d.get("description") or "",
                 "definition": d,
-                "findings": [f.to_dict() for f in findings if f.tool == d["name"]],
+                "findings": [f.to_dict() for f in found.tool_findings(name)],
             }
-            for d in definitions
+            for name, d in found.tools.items()
         ]
 
     @app.get("/api/servers/{server_id}/tool-changes")
