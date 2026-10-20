@@ -31,11 +31,12 @@ built yet).
 | `config validate\|show\|export FILE` | IMPLEMENTED | local | Same validation and redaction as the monitor. |
 | `doctor` | IMPLEMENTED | local (+ probes the instance) | Read-only diagnosis of installation, database, TLS, settings. |
 | `version` / `--version` | IMPLEMENTED | local | Versions of mcpsonar, the MCP SDK and Python. |
-| `status` | PLANNED (v0.7) | remote | Overview of monitored servers from a running instance. |
-| `servers list\|add\|show\|edit\|remove\|pause\|resume` | PLANNED (v0.7) | remote | Manage the instance's servers through its API. |
-| `check NAME\|--all` | PLANNED (v0.7) | remote (local for a URL) | Check now; through the instance so its scheduler stays the single writer. |
-| `diff NAME` | PLANNED (v0.7) | remote | Pending tool changes vs the trusted baseline; never approves. |
-| `history NAME --last 24h` | PLANNED (v0.7) | remote | Availability and latency history (bounded by default). |
+| `status` | IMPLEMENTED | remote | Health, latency, last check, unreviewed changes, findings, anomalies; `--fail-on down\|degraded` (default never). |
+| `servers list\|show NAME` | IMPLEMENTED | remote | Monitored servers; `show` prints the config with credentials masked by the instance. |
+| `servers add\|edit\|remove\|pause\|resume` | PLANNED (v0.7, next batch) | remote | Change servers through the API; confirmation on a TTY, `--yes` otherwise. |
+| `check NAME\|--all` | IMPLEMENTED | remote | Check now, run by the instance (recorded like a scheduled check). Needs a *write* token. `--fail-on` (default down). |
+| `diff NAME [--all]` | IMPLEMENTED | remote | Changes vs the trusted definitions, each marked pending, SUSPICIOUS (new definition has findings) or APPROVED. Exit 1 while unreviewed. Never approves. |
+| `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
 | `report --format json\|markdown\|sarif` | PLANNED (v0.8) | both | Operational and security report; SARIF 2.1.0 with stable rule IDs. |
 | shell completion | PLANNED (v0.8) | — | Optional, through `argcomplete` (an extra, not a core dependency). |
 
@@ -44,10 +45,19 @@ built yet).
 - **Local (direct) mode** uses the engine in-process. Nothing needs to be running. The
   target is a URL, `--stdio "command args"`, or a server name from a YAML file
   (`NAME --config servers.yaml`).
-- **Remote mode** (PLANNED, v0.7) talks to a running instance through its REST API:
-  - **Address:** `MCPSONAR_URL` (default `http://127.0.0.1:8675`).
-  - **Credentials:** an **API token** (`MCPSONAR_TOKEN`) created in the dashboard. Tokens are
-    stored hashed, scoped to *read* or *write*, and revocable.
+- **Remote mode** talks to a running instance through the same REST API as the dashboard:
+  - **Address:** `MCPSONAR_URL` (default `http://127.0.0.1:8675`) or `--url`.
+  - **Credentials:** an **API token** in `MCPSONAR_TOKEN`, never on the command line (it
+    would end up in shell history and `ps`). Create it in the dashboard → **API tokens**.
+    - *read* tokens can only make GET requests: `status`, `servers list|show`, `diff`,
+      `history`;
+    - *write* tokens can also `check` and change servers;
+    - only the token's SHA-256 is stored, so the token is shown once;
+    - optional expiry; revocable at any time;
+    - a token can never create or list tokens: that needs a signed-in dashboard session.
+  - **No login:** with `--no-auth` instances no token is needed.
+  - **Plain HTTP:** the CLI warns before sending a token over `http://` to anything but
+    localhost.
   - **No direct database access:** the CLI never opens the instance's SQLite database for
     writing. Two writers would race the scheduler. `doctor` only ever opens the database
     read-only.
@@ -57,7 +67,7 @@ built yet).
 ### Live inspection vs. monitoring state
 
 `tools`, `risks` and `scan` show the server **as it is right now**. `status`, `history` and
-`diff` (planned) show the **monitoring state** the instance has recorded. They can
+`diff` show the **monitoring state** the instance has recorded. They can
 legitimately differ: if a tool changed a minute ago, `risks` already sees the new
 definition, while `status` reports it at the next scheduled check. Both use the same
 classification, lint, fingerprinting and redaction code, so for the same definitions they
@@ -88,8 +98,8 @@ whole inspection is bounded too. On Windows, quote paths with spaces:
   renamed.
 - **Colors:** only when stdout is a terminal. `NO_COLOR` or `--no-color` turns them off.
   Meaning never depends on color: statuses and severities are words.
-- **Prompts:** no interactive prompts in this batch. Planned destructive commands
-  (`servers remove`) will ask only on a terminal, and require `--yes` otherwise.
+- **Prompts:** none yet. The planned destructive commands (`servers remove`) will ask only on
+  a terminal, and require `--yes` otherwise.
 - **Credentials:** never printed. URLs are shown redacted, and config output masks every
   header, env value and URL key.
 - **Logs:** one-shot commands log only warnings. `run` and `demo` log their activity at INFO.
@@ -158,6 +168,57 @@ mcpsonar doctor
 
   8 ok · 0 warning(s) · 0 failure(s)
 ```
+
+### Remote mode, against a real instance
+
+The commands below ran on Windows against a real instance (`mcpsonar run --port 18677`)
+with a read token, then a write token, in `MCPSONAR_TOKEN`. That instance monitored:
+- `calculator`: the local fixture in `poisoned` mode;
+- `search-mcp`: a server that refuses connections, configured with an `Authorization`
+  header. The header never appears in any output.
+
+Outputs are verbatim.
+
+```text
+$ mcpsonar status
+MCPSonar · http://127.0.0.1:18677
+
+SERVER      STATUS   LATENCY  LAST CHECK  CHANGES  RISKS  NOTE
+calculator  HEALTHY  1050 ms  13s ago     0        5
+search-mcp  DOWN     —        11s ago     0        0
+
+2 monitored · 1 healthy · 1 down
+WARNING: 1 server(s) with tool-poisoning findings — run `mcpsonar risks`; findings are heuristics for review
+```
+
+```text
+$ mcpsonar check calculator          # with a read token
+error: POST /api/servers/034138bcd311/check → 403: this API token is read-only
+
+$ mcpsonar check --all               # with a write token; exit 1: a server is down
+SERVER      STATUS   LATENCY  CHANGES  RISKS  DETAIL
+calculator  HEALTHY  1162 ms  0        5
+search-mcp  DOWN     —        0        0      connection/handshake failed: ConnectError: All connection attempts failed
+```
+
+```text
+$ mcpsonar history search-mcp --last 1h
+mcpsonar history · search-mcp · last 1h
+
+  checks   2   uptime 0.0%  (degraded counts as up; down does not)
+
+INCIDENT START (UTC)  WORST  CHECKS  RECOVERED  DETAIL
+2026-10-20 14:03:46   DOWN   2       ongoing    connection/handshake failed: ConnectError: All connection at
+```
+
+```text
+$ mcpsonar status                    # MCPSONAR_TOKEN unset; exit 2
+error: this instance requires a login: create an API token in the dashboard (API tokens) and set MCPSONAR_TOKEN
+```
+
+A *suspicious* `diff` (a real rug pull: a clean `add` tool pinned, then replaced by a
+poisoned one) is exercised end-to-end by
+`tests/test_cli_remote.py::test_check_then_status_and_diff_show_the_rug_pull`.
 
 ## Installation status
 

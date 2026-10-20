@@ -86,11 +86,13 @@ Tools view and `mcpsonar risks` must report the same findings). See [cli.md](cli
 - **Local-mode commands.** *IMPLEMENTED and tested on `feat/cli-foundation`:*
   - `tools`, `risks`, `config validate|show|export`, `doctor`, `version`;
   - `--format json` everywhere, `NO_COLOR`, stdout/stderr separation.
-- **Remote mode:**
-  - *API tokens:* created in the dashboard, stored hashed, scoped *read* or *write*, and
-    revocable. Used as `Authorization: Bearer` by the CLI. Tokens must not weaken the
-    v0.6 CSRF and session model.
+- **Remote mode.** *IMPLEMENTED and tested on `feat/cli-foundation`:*
+  - *API tokens:* created in the dashboard, stored hashed, scoped *read* or *write*,
+    expiring and revocable. Used as `Authorization: Bearer` by the CLI, without touching
+    the v0.6 CSRF and session model.
   - *Client config:* `MCPSONAR_URL` + `MCPSONAR_TOKEN`.
+  - *Commands:* `status`, `servers list|show`, `check`, `diff`, `history`.
+  - *Still planned:* `servers add|edit|remove|pause|resume`.
 - **Remote-mode commands** (all through the instance's API, never its database):
   - `status`;
   - `servers list|add|show|edit|remove|pause|resume`, with confirmation on a TTY and `--yes`

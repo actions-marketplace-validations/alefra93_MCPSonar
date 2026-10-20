@@ -13,6 +13,18 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
   See [docs/cli.md](docs/cli.md).
 - A rule registry (`lint.RULES`): every finding's rule ID now has a title, an explanation
   and a remediation.
+- **API tokens** for the CLI and automation: created and revoked in the dashboard (new **API
+  tokens** dialog). They are scoped *read* (GET only) or *write*, can expire, are stored
+  hashed and shown once, and can't manage tokens. They are sent as
+  `Authorization: Bearer mcps_…`.
+- Remote-mode CLI commands that work against a running instance (`MCPSONAR_URL`,
+  `MCPSONAR_TOKEN`), through the same API as the dashboard and never through its database:
+  - `status`;
+  - `servers list|show`;
+  - `check NAME|--all`, run by the instance;
+  - `diff NAME`: changes marked pending, SUSPICIOUS or APPROVED; never approves anything;
+  - `history NAME --last 24h`: uptime, latency percentiles, baseline, shift, incidents.
+- `GET /api/servers/{id}/tool-changes` includes the lint `findings` of each new definition.
 
 ### Changed
 - The dashboard's Tools view, `mcpsonar scan` and the new commands share one inspection

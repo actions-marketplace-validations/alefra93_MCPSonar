@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
+from .lint import lint_tool
 from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
 from .redact import RedactedValueError, check_no_placeholders, redact_config, restore_secrets
@@ -135,10 +136,17 @@ def register_api(
 
     @app.get("/api/servers/{server_id}/tool-changes")
     async def tool_changes(server_id: str, all: bool = False):
-        """Tool add/remove/change events vs. the pinned baseline (pending only, or ``all``)."""
+        """Tool add/remove/change events vs. the pinned baseline (pending only, or ``all``).
+
+        Each change carries the lint ``findings`` of its new definition, so every interface
+        tells a plain change from a *suspicious* one the same way."""
         if await storage.get_server(server_id) is None:
             raise HTTPException(404, "server not found")
-        return await storage.list_tool_changes(server_id, include_reviewed=all)
+        changes = await storage.list_tool_changes(server_id, include_reviewed=all)
+        for change in changes:
+            after = change.get("after")
+            change["findings"] = [f.to_dict() for f in lint_tool(after)] if after else []
+        return changes
 
     @app.post("/api/servers/{server_id}/tool-changes/ack")
     async def acknowledge_tool_changes(server_id: str):

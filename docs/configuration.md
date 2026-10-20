@@ -22,6 +22,18 @@ output or shell history.
 | | `MCPSONAR_METRICS_TOKEN` | — (public) | When set, `/metrics` requires `Authorization: Bearer <token>`. |
 | | `FORWARDED_ALLOW_IPS` | `127.0.0.1` | (uvicorn) proxies whose `X-Forwarded-For` / `-Proto` are trusted. See *Reverse proxy*. |
 
+### CLI client (remote mode)
+
+| Environment | Default | What it does |
+|---|---|---|
+| `MCPSONAR_URL` | `http://127.0.0.1:8675` | The instance `status`, `servers`, `check`, `diff` and `history` talk to (`--url` overrides). |
+| `MCPSONAR_TOKEN` | — | API token from the dashboard (**API tokens**). *read* tokens: GET only. *write* tokens: also check and change servers. Not needed with `--no-auth`. |
+
+API tokens are stored as SHA-256 hashes and shown once. They can expire, are revoked from
+the dashboard, and can't be used to create or list tokens. Prefer *read* tokens for
+dashboards, scripts and CI; give *write* only to automation that must trigger checks or
+change servers.
+
 ### Outbound connection policy
 
 Applies to MCP checks (HTTP and SSE, including every redirect hop) and to webhook / Uptime
