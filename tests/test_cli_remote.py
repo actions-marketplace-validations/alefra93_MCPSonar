@@ -47,7 +47,8 @@ async def instance(monkeypatch):
         url="http://127.0.0.1:1/mcp", headers={"Authorization": f"Bearer {SECRET}"}))
     await storage.create_server("old", ServerConfig(url="http://127.0.0.1:1/mcp"),
                                 enabled=False)
-    yield {"read": read, "write": write, "storage": storage, "calc": calc}
+    yield {"read": read, "write": write, "storage": storage, "calc": calc,
+           "scheduler": scheduler}
     await scheduler.stop()
     await storage.close()
 
@@ -175,3 +176,114 @@ class _FailingClient:
 
     async def aclose(self):
         pass
+
+
+# ---- servers add / edit / pause / resume / remove ---------------------------- #
+class _Stdin:
+    def __init__(self, tty: bool, answer: str = "") -> None:
+        self._tty = tty
+        self._answer = answer
+
+    def isatty(self) -> bool:
+        return self._tty
+
+    def readline(self) -> str:
+        return self._answer
+
+
+async def test_add_keeps_secret_out_of_argv_and_output(instance, capsys, monkeypatch):
+    monkeypatch.setenv("GH_PAT", SECRET)
+    code, out, err = await cli(
+        capsys, monkeypatch, instance["write"], "servers", "add", "github",
+        "--endpoint", "http://127.0.0.1:1/mcp", "--header-from-env", "Authorization=GH_PAT",
+        "--interval", "120", "--probe", "ping", "--down-ms", "5000", "--json")
+    assert code == 0, err
+    created = json.loads(out)["server"]
+    assert SECRET not in out and created["headers"] == {"Authorization": "********"}
+    stored = await instance["storage"].get_server(created["id"])
+    assert stored.headers["Authorization"] == SECRET  # the instance has the real value
+    assert stored.check_interval_seconds == 120 and stored.thresholds.latency_down_ms == 5000
+    assert instance["scheduler"].is_running(created["id"])  # checking started, no restart
+
+
+async def test_add_stdio_and_input_errors(instance, capsys, monkeypatch):
+    code, out, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "add", "local",
+                             "--stdio", f'"{sys.executable}" "{FIXTURE}" pages', "--paused")
+    assert code == 0 and "stdio" in out and "paused" in out
+    monkeypatch.delenv("NOPE_VAR", raising=False)
+    code, _, err = await cli(capsys, monkeypatch, instance["write"], "servers", "add", "x",
+                             "--endpoint", "http://h/mcp", "--header-from-env", "A=NOPE_VAR")
+    assert code == 2 and "NOPE_VAR is not set" in err
+    code, _, err = await cli(capsys, monkeypatch, instance["write"], "servers", "add", "x",
+                             "--endpoint", "file:///etc/passwd")
+    assert code == 2 and "422" in err  # validated once, by the instance
+
+
+async def test_edit_changes_only_what_is_given(instance, capsys, monkeypatch):
+    storage = instance["storage"]
+    before = next(s for s in await storage.list_servers() if s.name == "remote-api")
+    code, out, err = await cli(capsys, monkeypatch, instance["write"], "servers", "edit",
+                               "remote-api", "--interval", "45", "--name", "remote-api-2")
+    assert code == 0, err
+    assert "updated" in out
+    after = await storage.get_server(before.id)
+    assert after.name == "remote-api-2" and after.check_interval_seconds == 45
+    assert after.headers == before.headers  # masked on the wire, kept on the instance
+    code, _, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "edit",
+                           "remote-api-2", "--remove-header", "authorization")
+    assert (await storage.get_server(before.id)).headers == {}
+
+
+async def test_edit_probe_list_keeps_existing_arguments(instance, capsys, monkeypatch):
+    storage = instance["storage"]
+    srv = await storage.create_server("probed", ServerConfig(
+        url="http://127.0.0.1:1/mcp", tools_to_test=[{"name": "search", "arguments": {"q": "x"}}]),
+        enabled=False)
+    await cli(capsys, monkeypatch, instance["write"], "servers", "edit", "probed",
+              "--probe", "search", "--probe", "ping")
+    probes = (await storage.get_server(srv.id)).tools_to_test
+    assert [(p.name, p.arguments) for p in probes] == [("search", {"q": "x"}), ("ping", None)]
+
+
+async def test_pause_and_resume(instance, capsys, monkeypatch):
+    calc = instance["calc"]
+    code, out, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "pause",
+                             "calculator")
+    assert code == 0 and "paused" in out
+    assert not (await instance["storage"].get_server(calc.id)).enabled
+    assert not instance["scheduler"].is_running(calc.id)
+    code, out, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "resume",
+                             "calculator")
+    assert code == 0 and "resumed" in out and instance["scheduler"].is_running(calc.id)
+
+
+async def test_remove_needs_confirmation(instance, capsys, monkeypatch):
+    from mcpsonar.commands import servers_cmd
+
+    storage, w = instance["storage"], instance["write"]
+    monkeypatch.setattr(servers_cmd.sys, "stdin", _Stdin(tty=False))
+    code, _, err = await cli(capsys, monkeypatch, w, "servers", "remove", "old")
+    assert code == 2 and "--yes" in err
+    assert any(s.name == "old" for s in await storage.list_servers())
+
+    # Windows reports NUL as a tty: a "terminal" that answers nothing must not delete
+    monkeypatch.setattr(servers_cmd.sys, "stdin", _Stdin(tty=True, answer=""))
+    code, out, err = await cli(capsys, monkeypatch, w, "servers", "remove", "old")
+    assert code == 2 and "stdin closed" in err and "--yes" in err and out == ""
+
+    monkeypatch.setattr(servers_cmd.sys, "stdin", _Stdin(tty=True, answer="n"))
+    code, _, err = await cli(capsys, monkeypatch, w, "servers", "remove", "old")
+    assert code == 2 and "not deleted" in err and "[y/N]" in err  # prompt on stderr
+    monkeypatch.setattr(servers_cmd.sys, "stdin", _Stdin(tty=True, answer="y"))
+    code, out, _ = await cli(capsys, monkeypatch, w, "servers", "remove", "old")
+    assert code == 0 and "removed" in out and "[y/N]" not in out
+    assert not any(s.name == "old" for s in await storage.list_servers())
+
+
+async def test_remove_with_yes_and_read_token_refused(instance, capsys, monkeypatch):
+    code, _, err = await cli(capsys, monkeypatch, instance["read"], "servers", "remove", "old",
+                             "--yes")
+    assert code == 2 and "read-only" in err
+    code, out, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "remove", "old",
+                             "--yes", "--json")
+    assert code == 0 and json.loads(out)["kind"] == "server.removed"

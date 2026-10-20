@@ -23,7 +23,10 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
   - `servers list|show`;
   - `check NAME|--all`, run by the instance;
   - `diff NAME`: changes marked pending, SUSPICIOUS or APPROVED; never approves anything;
-  - `history NAME --last 24h`: uptime, latency percentiles, baseline, shift, incidents.
+  - `history NAME --last 24h`: uptime, latency percentiles, baseline, shift, incidents;
+  - `servers add|edit|pause|resume|remove`. `--header-from-env` keeps credentials out of
+    shell history. `edit` changes only the given options and keeps credentials and probe
+    arguments. `remove` asks for confirmation on a terminal and needs `--yes` otherwise.
 - `GET /api/servers/{id}/tool-changes` includes the lint `findings` of each new definition.
 
 ### Changed

@@ -124,7 +124,8 @@ def test_tools_by_name_from_config(capsys, tmp_path):
         encoding="utf-8",
     )
     code, out, err = run(capsys, "tools", "scripted", "--config", str(cfg), "--json")
-    assert code == 0, err and json.loads(out)["target"] == "scripted"
+    assert code == 0, err
+    assert json.loads(out)["target"] == "scripted"
     code, _, err = run(capsys, "tools", "missing", "--config", str(cfg))
     assert code == 2 and "servers: scripted" in err
 

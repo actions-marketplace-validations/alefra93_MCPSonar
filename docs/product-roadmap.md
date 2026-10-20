@@ -91,8 +91,8 @@ Tools view and `mcpsonar risks` must report the same findings). See [cli.md](cli
     expiring and revocable. Used as `Authorization: Bearer` by the CLI, without touching
     the v0.6 CSRF and session model.
   - *Client config:* `MCPSONAR_URL` + `MCPSONAR_TOKEN`.
-  - *Commands:* `status`, `servers list|show`, `check`, `diff`, `history`.
-  - *Still planned:* `servers add|edit|remove|pause|resume`.
+  - *Commands:* `status`, `servers list|show|add|edit|pause|resume|remove`, `check`, `diff`,
+    `history`.
 - **Remote-mode commands** (all through the instance's API, never its database):
   - `status`;
   - `servers list|add|show|edit|remove|pause|resume`, with confirmation on a TTY and `--yes`

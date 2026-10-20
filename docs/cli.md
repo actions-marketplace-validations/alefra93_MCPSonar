@@ -33,7 +33,7 @@ built yet).
 | `version` / `--version` | IMPLEMENTED | local | Versions of mcpsonar, the MCP SDK and Python. |
 | `status` | IMPLEMENTED | remote | Health, latency, last check, unreviewed changes, findings, anomalies; `--fail-on down\|degraded` (default never). |
 | `servers list\|show NAME` | IMPLEMENTED | remote | Monitored servers; `show` prints the config with credentials masked by the instance. |
-| `servers add\|edit\|remove\|pause\|resume` | PLANNED (v0.7, next batch) | remote | Change servers through the API; confirmation on a TTY, `--yes` otherwise. |
+| `servers add\|edit\|pause\|resume\|remove` | IMPLEMENTED | remote | Change servers through the API (write token). `add --endpoint URL\|--stdio CMD`, `--header-from-env K=VAR` keeps secrets out of shell history; `edit` changes only what is given; `remove` asks on a terminal, needs `--yes` otherwise. |
 | `check NAME\|--all` | IMPLEMENTED | remote | Check now, run by the instance (recorded like a scheduled check). Needs a *write* token. `--fail-on` (default down). |
 | `diff NAME [--all]` | IMPLEMENTED | remote | Changes vs the trusted definitions, each marked pending, SUSPICIOUS (new definition has findings) or APPROVED. Exit 1 while unreviewed. Never approves. |
 | `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
@@ -98,8 +98,11 @@ whole inspection is bounded too. On Windows, quote paths with spaces:
   renamed.
 - **Colors:** only when stdout is a terminal. `NO_COLOR` or `--no-color` turns them off.
   Meaning never depends on color: statuses and severities are words.
-- **Prompts:** none yet. The planned destructive commands (`servers remove`) will ask only on
-  a terminal, and require `--yes` otherwise.
+- **Prompts:** only `servers remove` asks, and only on a terminal; the question goes to
+  stderr. Without a terminal, or when stdin gives no answer, it refuses unless `--yes` is
+  given. This also covers Windows, where `NUL` reports itself as a terminal.
+- **Two URLs:** in remote commands `--url` is always the MCPSonar instance. The monitored
+  server's address is `--endpoint`.
 - **Credentials:** never printed. URLs are shown redacted, and config output masks every
   header, env value and URL key.
 - **Logs:** one-shot commands log only warnings. `run` and `demo` log their activity at INFO.
@@ -214,6 +217,29 @@ INCIDENT START (UTC)  WORST  CHECKS  RECOVERED  DETAIL
 ```text
 $ mcpsonar status                    # MCPSONAR_TOKEN unset; exit 2
 error: this instance requires a login: create an API token in the dashboard (API tokens) and set MCPSONAR_TOKEN
+```
+
+```text
+$ mcpsonar servers add github-mcp --endpoint http://127.0.0.1:1/mcp --header-from-env Authorization=GH_PAT --interval 300
+added: github-mcp (d4c187209501) · http · http://127.0.0.1:1/mcp · active
+
+$ mcpsonar servers show github-mcp      # first lines
+transport: http
+url: http://127.0.0.1:1/mcp
+headers:
+  Authorization: '********'
+
+$ mcpsonar servers edit github-mcp --interval 60 --probe ping
+updated: github-mcp (d4c187209501) · http · http://127.0.0.1:1/mcp · active
+
+$ mcpsonar servers pause github-mcp
+paused: github-mcp (d4c187209501) · http · http://127.0.0.1:1/mcp · paused
+
+$ mcpsonar servers remove tmp < /dev/null     # exit 2, nothing deleted
+Delete tmp (7b90f4cbf6d0) and its whole history? [y/N] error: no answer (stdin closed): pass --yes when running non-interactively
+
+$ mcpsonar servers remove github-mcp --yes
+removed: github-mcp (d4c187209501) and its history
 ```
 
 A *suspicious* `diff` (a real rug pull: a clean `add` tool pinned, then replaced by a
