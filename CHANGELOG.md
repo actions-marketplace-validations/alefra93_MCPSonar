@@ -3,7 +3,7 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [Unreleased] — proposed 0.6.0
+## [0.6.0] — unreleased (date it when tagging)
 
 Security hardening release. Details, evidence and tests for each item:
 [docs/engineering-audit.md](docs/engineering-audit.md). Upgrade notes:
