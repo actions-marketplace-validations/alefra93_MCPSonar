@@ -62,10 +62,13 @@ echo "app    : $B"
 "$PY" scripts/mock_mcp_server.py --port "$MOCK_PORT" >"$WORK/mock.log" 2>&1 & PIDS+=("$!")
 wait_port "$MOCK_PORT" || { echo "mock MCP server did not start"; exit 1; }
 wait_port "$HOOK_PORT" || { echo "webhook receiver did not start"; exit 1; }
-"$PY" -m mcpsonar.cli run --db "$DB" --port "$PORT" >"$WORK/sonar.log" 2>&1 & PIDS+=("$!")
+SETUP_TOKEN="smoke-$RANDOM-$RANDOM"
+MCPSONAR_SETUP_TOKEN="$SETUP_TOKEN" "$PY" -m mcpsonar.cli run --db "$DB" --port "$PORT" \
+  >"$WORK/sonar.log" 2>&1 & PIDS+=("$!")
 wait_port "$PORT" || { echo "mcpsonar did not start:"; cat "$WORK/sonar.log"; exit 1; }
 
-HAVE_NPX=0; command -v npx >/dev/null 2>&1 && HAVE_NPX=1
+# SMOKE_SKIP_NPX=1 skips the stdio check, which downloads and runs an npm package.
+HAVE_NPX=0; [ "${SMOKE_SKIP_NPX:-0}" != "1" ] && command -v npx >/dev/null 2>&1 && HAVE_NPX=1
 
 P=0; F=0
 chk(){ if [ "$2" = "$3" ]; then echo "  PASS  $1"; P=$((P+1));
@@ -77,8 +80,11 @@ jrecent(){ "$PY" -c "import sys,json;d=json.load(sys.stdin);print(len(d['$1']['r
 
 echo "=== AUTH ==="
 chk "unauth /api/servers -> 401" "$(code $B/api/servers)" "401"
+chk "setup without token -> 403" "$(code -X POST $B/api/auth/setup -H 'Content-Type: application/json' \
+      -d '{"username":"admin","password":"supersecret"}')" "403"
 chk "setup admin -> 200" "$(curl -s -c "$JAR" -o /dev/null -w '%{http_code}' -X POST $B/api/auth/setup \
-      -H 'Content-Type: application/json' -d '{"username":"admin","password":"supersecret"}')" "200"
+      -H 'Content-Type: application/json' \
+      -d '{"username":"admin","password":"supersecret","setup_token":"'"$SETUP_TOKEN"'"}')" "200"
 chk "authed /api/servers -> 200" "$(code -b "$JAR" $B/api/servers)" "200"
 
 echo "=== ADD SERVERS ==="
