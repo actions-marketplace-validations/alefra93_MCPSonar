@@ -3,6 +3,27 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
+## [Unreleased] — proposed 0.7.0 (branch `feat/cli-foundation`, on top of 0.6.0)
+
+### Added
+- CLI commands `tools`, `risks`, `config validate|show|export`, `doctor` and `version`
+  (plus `--version`). They work without a running instance, against a URL, `--stdio` or a
+  server name from a YAML file. Every command supports `--format json`, `NO_COLOR` /
+  `--no-color`, results on stdout and diagnostics on stderr, and stable exit codes (0/1/2).
+  See [docs/cli.md](docs/cli.md).
+- A rule registry (`lint.RULES`): every finding's rule ID now has a title, an explanation
+  and a remediation.
+
+### Changed
+- The dashboard's Tools view, `mcpsonar scan` and the new commands share one inspection
+  service. As a result `scan` now has an overall time budget too.
+- One-shot commands log only warnings; `run` and `demo` are unchanged.
+- `scan` also accepts `--format json`.
+
+### Fixed
+- `--stdio` with quoted paths on Windows (e.g. `"C:\Program Files\nodejs\npx.cmd"`): the
+  quotes were kept as part of the path, so the command could not be found.
+
 ## [0.6.0] — 2026-10-21
 
 Security hardening release. Details, evidence and tests for each item:

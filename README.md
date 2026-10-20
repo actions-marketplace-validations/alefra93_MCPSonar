@@ -250,8 +250,16 @@ No config file is required; servers are managed from the UI.
 | Command | Purpose |
 |---|---|
 | `mcpsonar run` | The monitor: dashboard, API, `/metrics`, scheduled checks. |
-| `mcpsonar scan <url> \| --stdio "cmd"` | One-shot security scan (`--lock`, `--update-lock`, `--fail-on`, `--json`, `-H`, `-e`). |
+| `mcpsonar scan <url> \| --stdio "cmd"` | One-shot security scan for CI (`--lock`, `--update-lock`, `--fail-on`, `--json`, `-H`, `-e`). |
+| `mcpsonar tools <url>` | Every tool a server exposes, with risk indicators (`--detail`, `--json`). |
+| `mcpsonar risks <url>` | Each finding explained: evidence and what to review (`--severity`, `--fail-on`). |
+| `mcpsonar config validate\|show\|export FILE` | Check a YAML config; show/export it with credentials masked. |
+| `mcpsonar doctor` | Read-only diagnosis of the installation and deployment. |
 | `mcpsonar demo` | Dashboard against four scripted demo servers (`--interval`, `--no-browser`). |
+
+All commands take `--format json`, honor `NO_COLOR`, and exit 0 (ok), 1 (problem found) or 2
+(could not run). Full reference, including local and remote mode:
+[docs/cli.md](docs/cli.md).
 
 `mcpsonar run` options:
 
