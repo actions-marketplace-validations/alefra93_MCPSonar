@@ -1,7 +1,10 @@
 # mcpsonar as a service.
 #   docker compose up -d
-#   open http://localhost:8675  →  add MCP servers from the UI (no config file needed)
-#   /metrics for Prometheus
+#   docker compose logs mcpsonar   →  open the one-time setup link it prints (creates the admin)
+#   then add MCP servers from the UI (no config file needed); /metrics for Prometheus
+#
+# Exposed on all interfaces: put it behind HTTPS (a reverse proxy) before reaching it over
+# an untrusted network. See SECURITY.md and docs/configuration.md.
 services:
   mcpsonar:
     build: .
@@ -16,6 +19,11 @@ services:
     #   - ./config.yaml:/config/config.yaml:ro
     # command: ["run", "--host", "0.0.0.0", "--config", "/config/config.yaml"]
     restart: unless-stopped
+    # Least privilege: the entrypoint needs only CHOWN/SETUID/SETGID to hand /data to the
+    # unprivileged mcpsonar user and drop to it; nothing else.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   mcpsonar-data:

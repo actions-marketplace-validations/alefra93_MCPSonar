@@ -29,6 +29,9 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "aiosqlite>=0.20",
+    # Not used directly (mcp's OAuth client pulls it in): a floor so installs never resolve
+    # to versions with known advisories (PYSEC-2026-4140..4183, found by pip-audit in CI).
+    "pyjwt>=2.15",
 ]
 
 [project.optional-dependencies]

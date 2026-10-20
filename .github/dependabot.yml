@@ -1,0 +1,19 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    # mcp 2.x is a breaking rewrite: evaluate it on purpose (see docs/product-roadmap.md),
+    # not through an automated bump.
+    ignore:
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
