@@ -8,21 +8,24 @@ Tables:
 * ``tool_baselines`` / ``tool_snapshots`` — the last-seen definition of every tool, per
   server (rug-pull detection diffs against these).
 * ``tool_changes`` — every detected tool add/remove/change, until a human reviews it.
+* ``users`` / ``sessions`` — the dashboard admin and its login sessions (token hashes only).
 
 Kept intentionally thin: hand-written SQL, no ORM, one shared async connection.
 """
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import json
-import secrets
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
 
-from .auth import hash_password, verify_password
+from .auth import hash_password, needs_rehash, new_session_token, token_digest, verify_password
 from .models import Anomaly, CheckEvent, CheckStatus, MonitoredServer, ServerConfig
 from .tooldefs import ToolChange
 
@@ -88,7 +91,20 @@ CREATE TABLE IF NOT EXISTS users (
     salt          TEXT NOT NULL,
     created_at    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    username   TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
+
+
+@functools.cache
+def _dummy_hash() -> tuple[str, str]:
+    """Verified against when the username does not exist, so a wrong username costs the same
+    time as a wrong password (no user enumeration by timing)."""
+    return hash_password("mcpsonar-timing-equalizer", salt="00" * 16)
 
 
 def _new_id() -> str:
@@ -381,31 +397,77 @@ class Storage:
         )
         await self._conn.commit()
 
-    async def get_or_create_session_secret(self) -> str:
-        """Persist a random secret used to sign session cookies (stable across restarts)."""
-        secret = await self.get_setting("session_secret")
-        if secret is None:
-            secret = secrets.token_hex(32)
-            await self.set_setting("session_secret", secret)
-        return secret
-
     async def has_admin(self) -> bool:
         cur = await self._conn.execute("SELECT COUNT(*) AS n FROM users")
         return (await cur.fetchone())["n"] > 0
 
     async def create_admin(self, username: str, password: str) -> None:
-        salt, pw_hash = hash_password(password)
+        salt, pw_hash = await asyncio.to_thread(hash_password, password)
         await self._conn.execute(
             "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
             (username, pw_hash, salt, datetime.now(UTC).isoformat()),
         )
         await self._conn.commit()
 
+    async def create_first_admin(self, username: str, password: str) -> bool:
+        """Create the admin only if no user exists yet, atomically. Returns False if one did
+        (so two racing first-run setups can never both succeed)."""
+        salt, pw_hash = await asyncio.to_thread(hash_password, password)
+        cur = await self._conn.execute(
+            "INSERT INTO users (username, password_hash, salt, created_at) "
+            "SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)",
+            (username, pw_hash, salt, datetime.now(UTC).isoformat()),
+        )
+        await self._conn.commit()
+        return cur.rowcount == 1
+
     async def verify_credentials(self, username: str, password: str) -> bool:
+        """Check a login. Hashing runs off the event loop; a hash weaker than the current
+        policy (v0.5 and earlier) is upgraded in place after a successful check."""
         cur = await self._conn.execute(
             "SELECT password_hash, salt FROM users WHERE username = ?", (username,)
         )
         row = await cur.fetchone()
         if row is None:
+            await asyncio.to_thread(verify_password, password, *_dummy_hash())
             return False
-        return verify_password(password, row["salt"], row["password_hash"])
+        if not await asyncio.to_thread(verify_password, password, row["salt"], row["password_hash"]):
+            return False
+        if needs_rehash(row["password_hash"]):
+            salt, pw_hash = await asyncio.to_thread(hash_password, password)
+            await self._conn.execute(
+                "UPDATE users SET password_hash = ?, salt = ? WHERE username = ?",
+                (pw_hash, salt, username),
+            )
+            await self._conn.commit()
+        return True
+
+    # ---- sessions ------------------------------------------------------------ #
+    async def create_session(self, username: str, ttl_s: float) -> str:
+        """Start a session; returns the token for the cookie (only its hash is stored)."""
+        token = new_session_token()
+        now = time.time()
+        await self._conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+        await self._conn.execute(
+            "INSERT INTO sessions (token_hash, username, created_at, expires_at) "
+            "VALUES (?, ?, ?, ?)",
+            (token_digest(token), username, now, now + ttl_s),
+        )
+        await self._conn.commit()
+        return token
+
+    async def get_session_user(self, token: str) -> str | None:
+        """The username of a live session, or None (unknown, revoked or expired)."""
+        cur = await self._conn.execute(
+            "SELECT s.username FROM sessions s JOIN users u ON u.username = s.username "
+            "WHERE s.token_hash = ? AND s.expires_at > ?",
+            (token_digest(token), time.time()),
+        )
+        row = await cur.fetchone()
+        return row["username"] if row else None
+
+    async def delete_session(self, token: str) -> None:
+        await self._conn.execute(
+            "DELETE FROM sessions WHERE token_hash = ?", (token_digest(token),)
+        )
+        await self._conn.commit()

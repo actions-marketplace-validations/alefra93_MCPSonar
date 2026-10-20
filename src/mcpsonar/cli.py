@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import logging
 import os
+import secrets
 import sys
 import tempfile
 import webbrowser
@@ -24,6 +26,9 @@ from .loader import ConfigError, load_config
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
+from .websec import LOOPBACK_HOSTS
+
+_TRUE = {"1", "true", "yes", "on"}
 
 logger = logging.getLogger("mcpsonar")
 
@@ -52,6 +57,35 @@ async def _seed_demo(storage: Storage, servers, interval: int) -> None:
         )
 
 
+def _env_list(name: str) -> list[str]:
+    return [v.strip() for v in os.environ.get(name, "").split(",") if v.strip()]
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def default_allowed_hosts(
+    require_auth: bool, bind_host: str, extra: list[str]
+) -> list[str] | None:
+    """Which ``Host`` headers to accept. Without a login, only the loopback names (plus any
+    the operator lists): that is what defeats DNS rebinding against an open instance. With a
+    login, any host unless the operator restricts it (the session cookie protects it)."""
+    if extra:
+        return [*LOOPBACK_HOSTS, *extra]
+    if require_auth:
+        return None
+    hosts = list(LOOPBACK_HOSTS)
+    if bind_host not in ("0.0.0.0", "::", "") and not _is_loopback(bind_host):
+        hosts.append(bind_host)
+    return hosts
+
+
 async def _serve(
     config_path: str | None,
     host: str,
@@ -61,6 +95,10 @@ async def _serve(
     require_auth: bool,
     demo_interval: int | None = None,
     open_browser: bool = False,
+    allowed_hosts: list[str] | None = None,
+    trusted_origins: list[str] | None = None,
+    cookie_secure: str = "auto",
+    allow_stdio_api: bool = False,
 ) -> None:
     storage = await Storage.open(db_path)
     if config_path:
@@ -78,9 +116,33 @@ async def _serve(
     scheduler = Scheduler(storage, store, retention_days=retention_days)
     await scheduler.start()
 
-    app = create_app(storage, store, scheduler, require_auth=require_auth)
+    setup_token = None
     if require_auth and not await storage.has_admin():
-        logger.info("no admin yet — open the dashboard to create one (first-run setup)")
+        preset = os.environ.get("MCPSONAR_SETUP_TOKEN")
+        setup_token = preset or secrets.token_urlsafe(18)
+        shown = "<MCPSONAR_SETUP_TOKEN>" if preset else setup_token
+        browse = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+        logger.warning(
+            "no admin yet — create one at http://%s:%d/login?setup_token=%s "
+            "(the setup token is required, so nobody else can claim this instance first)",
+            browse, port, shown,
+        )
+    if not require_auth and not _is_loopback(host):
+        logger.warning(
+            "--no-auth while listening on %s: anyone who can reach this port can read and "
+            "change the monitored servers. Keep it behind a firewall or an authenticating "
+            "proxy.", host,
+        )
+
+    app = create_app(
+        storage, store, scheduler, require_auth=require_auth,
+        setup_token=setup_token,
+        cookie_secure=cookie_secure,  # type: ignore[arg-type]
+        allowed_hosts=default_allowed_hosts(require_auth, host, allowed_hosts or []),
+        trusted_origins=trusted_origins or [],
+        allow_stdio_api=True if require_auth else allow_stdio_api,
+        metrics_token=os.environ.get("MCPSONAR_METRICS_TOKEN") or None,
+    )
 
     uv_config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(uv_config)
@@ -131,6 +193,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--host", default="127.0.0.1")
     run.add_argument("--port", type=int, default=8675)
+    run.add_argument(
+        "--allowed-host", action="append", default=_env_list("MCPSONAR_ALLOWED_HOSTS"),
+        metavar="HOST",
+        help="Host name this instance is reached as, repeatable; '*.example.com' allowed "
+        "(env MCPSONAR_ALLOWED_HOSTS, comma-separated). Other Host headers get 400. Default: "
+        "any host with login on; only localhost/127.0.0.1/::1 with --no-auth.",
+    )
+    run.add_argument(
+        "--trusted-origin", action="append", default=_env_list("MCPSONAR_TRUSTED_ORIGINS"),
+        metavar="ORIGIN",
+        help="Extra browser origin allowed to make changes, e.g. https://mcp.example.com when "
+        "a reverse proxy rewrites Host (env MCPSONAR_TRUSTED_ORIGINS).",
+    )
+    run.add_argument(
+        "--cookie-secure", choices=["auto", "always", "never"],
+        default=os.environ.get("MCPSONAR_COOKIE_SECURE", "auto"),
+        help="Secure flag on the session cookie: auto = when the request came over HTTPS "
+        "(env MCPSONAR_COOKIE_SECURE).",
+    )
+    run.add_argument(
+        "--allow-stdio-api", action="store_true",
+        default=os.environ.get("MCPSONAR_ALLOW_STDIO_API", "").lower() in _TRUE,
+        help="With --no-auth, still allow adding stdio servers (= launching commands) from "
+        "the UI/API. Only if nobody else can reach the port (env MCPSONAR_ALLOW_STDIO_API).",
+    )
 
     scan = sub.add_parser(
         "scan",
@@ -201,6 +288,10 @@ def main(argv: list[str] | None = None) -> int:
                 _serve(
                     args.config, args.host, args.port, args.db,
                     args.retention_days, require_auth=not args.no_auth,
+                    allowed_hosts=args.allowed_host,
+                    trusted_origins=args.trusted_origin,
+                    cookie_secure=args.cookie_secure,
+                    allow_stdio_api=args.allow_stdio_api,
                 )
             )
         except KeyboardInterrupt:

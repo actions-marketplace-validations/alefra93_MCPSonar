@@ -10,22 +10,52 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 import yaml
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
 from .check_engine import _format_exc, _open_session
 from .lint import lint_tools
 from .loader import parse_config_text
-from .models import CheckStatus, ServerInput
+from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
 from .tooldefs import normalize_tool
+from .websec import read_limited_body
+
+MAX_HISTORY_LIMIT = 5000
+
+_STDIO_REFUSED = (
+    "stdio servers make mcpsonar run a command on this host, so they cannot be added or "
+    "changed over an unauthenticated API. Enable the login (drop --no-auth), seed them from "
+    "the YAML config (--config), or start with --allow-stdio-api if this port is reachable "
+    "only by you."
+)
 
 
-def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: Scheduler) -> None:
+def _same_process(a: ServerConfig, b: ServerConfig) -> bool:
+    return (a.command, a.args, a.env) == (b.command, b.args, b.env)
+
+
+def register_api(
+    app: FastAPI,
+    storage: Storage,
+    store: StateStore,
+    scheduler: Scheduler,
+    *,
+    allow_stdio: bool = True,
+) -> None:
     background: set[asyncio.Task] = set()  # keep fire-and-forget tasks referenced
+
+    def _guard_stdio(new: ServerConfig, old: MonitoredServer | None = None) -> None:
+        """Refuse a new or changed stdio launch command when stdio is not allowed over the
+        API. Pausing/renaming an existing (YAML-seeded) stdio server stays possible."""
+        if allow_stdio or new.transport != TransportType.STDIO:
+            return
+        if old is not None and old.transport == TransportType.STDIO and _same_process(old, new):
+            return
+        raise HTTPException(403, _STDIO_REFUSED)
 
     @app.get("/api/servers")
     async def list_servers():
@@ -41,6 +71,7 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
 
     @app.post("/api/servers", status_code=201)
     async def create_server(payload: ServerInput):
+        _guard_stdio(payload)
         server = await storage.create_server(
             payload.name, payload.to_server_config(), enabled=payload.enabled
         )
@@ -49,6 +80,10 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
 
     @app.put("/api/servers/{server_id}")
     async def update_server(server_id: str, payload: ServerInput):
+        existing = await storage.get_server(server_id)
+        if existing is None:
+            raise HTTPException(404, "server not found")
+        _guard_stdio(payload, existing)
         server = await storage.update_server(
             server_id, payload.name, payload.to_server_config(), enabled=payload.enabled
         )
@@ -124,7 +159,11 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         return {"acknowledged": count}
 
     @app.get("/api/servers/{server_id}/insights")
-    async def insights(server_id: str, minutes: int | None = None, limit: int = 500):
+    async def insights(
+        server_id: str,
+        minutes: int | None = Query(None, ge=1),
+        limit: int = Query(500, ge=1, le=MAX_HISTORY_LIMIT),
+    ):
         """Anomaly-detection view of a window of history: learned baseline, the most
         significant latency change point, and every anomaly reported in the window."""
         if await storage.get_server(server_id) is None:
@@ -158,7 +197,11 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
         }
 
     @app.get("/api/servers/{server_id}/history")
-    async def history(server_id: str, minutes: int | None = None, limit: int = 500):
+    async def history(
+        server_id: str,
+        minutes: int | None = Query(None, ge=1),
+        limit: int = Query(500, ge=1, le=MAX_HISTORY_LIMIT),
+    ):
         server = await storage.get_server(server_id)
         if server is None:
             raise HTTPException(404, "server not found")
@@ -190,11 +233,13 @@ def register_api(app: FastAPI, storage: Storage, store: StateStore, scheduler: S
     @app.post("/api/import")
     async def import_yaml(request: Request):
         """Import servers from a YAML config body; each becomes a new monitored server."""
-        body = (await request.body()).decode("utf-8")
+        raw = await read_limited_body(request)
         try:
-            config = parse_config_text(body)
+            config = parse_config_text(raw.decode("utf-8"))
         except Exception as exc:
             raise HTTPException(400, f"invalid YAML config: {exc}") from exc
+        for cfg in config.servers.values():  # all-or-nothing: check before creating any
+            _guard_stdio(cfg)
         created = 0
         for name, cfg in config.servers.items():
             server = await storage.create_server(name=name, config=cfg)
