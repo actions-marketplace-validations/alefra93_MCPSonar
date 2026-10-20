@@ -103,9 +103,11 @@ Tools view and `mcpsonar risks` must report the same findings). See [cli.md](cli
 - **Service extraction:** move the remaining shared operations from `api.py` into services
   (server CRUD with secret restore, tool-change listing and approval, history and insights).
   The API and the CLI then call the same functions.
-- **MCP protocol currency:** implement ADR 0001 (mcp 2.x / spec 2026-07-28, with 2025-era
-  servers still supported) behind `check_engine` and `services`. Tool fingerprints must stay
-  stable, so existing baselines do not all turn into "changes".
+- **MCP protocol currency.** *IMPLEMENTED, TESTED and VERIFIED on `feat/mcp-sdk-2`:*
+  - ADR 0001 implemented: mcp 2.x / spec 2026-07-28, with 2025-era servers still supported,
+    behind `check_engine` and `services`;
+  - fingerprints stable: 42/42 live tools identical, golden-value tests;
+  - 24/24 live servers classified as before.
 
 **Dependencies:**
 - v0.6 released.

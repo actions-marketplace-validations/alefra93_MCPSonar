@@ -29,6 +29,25 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     arguments. `remove` asks for confirmation on a terminal and needs `--yes` otherwise.
 - `GET /api/servers/{id}/tool-changes` includes the lint `findings` of each new definition.
 
+### Protocol
+- **MCP Python SDK 2.x (`mcp>=2.3,<3`) and spec revision 2026-07-28.** One client speaks both
+  protocol eras: `server/discover` for 2026-07-28 servers, falling back to `initialize` for
+  2024-11-05 … 2025-11-25 servers. Servers that only speak 2026-07-28 used to be reported
+  *down*. 5 of the 24 public servers in `examples/popular-servers.yaml` already speak it.
+- New validator for 2026-07-28. `spec_version` reports the negotiated revision.
+- Unchanged:
+  - **Tool fingerprints:** identical to mcp 1.x, with golden values tested and 42/42 tools
+    checked on live servers. Stored baselines and lockfiles are re-normalized, so annotation
+    keys 2.x no longer represents don't count as changes.
+  - **401/403/429 handling:** *auth required*, *credentials rejected*, *rate limited* +
+    `Retry-After`.
+  - **Latency continuity:** HTTP times only the RPC that succeeded; stdio includes process
+    startup, as before.
+- `httpx` is replaced by `httpx2`, the stack mcp 2.x uses, so the outbound policy covers one HTTP
+  stack. On Windows and macOS, TLS uses the operating-system trust store, so corporate CAs work
+  without extra configuration.
+- "down" details now include the HTTP status when there was one (e.g. `(HTTP 503)`).
+
 ### Changed
 - The dashboard's Tools view, `mcpsonar scan` and the new commands share one inspection
   service. As a result `scan` now has an overall time budget too.

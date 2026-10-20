@@ -47,6 +47,10 @@ Kuma deliveries. Enforced when the TCP connection is opened, against the resolve
 | `MCPSONAR_OUTBOUND_ALLOW` | — | CIDRs always allowed (the only way to reach a metadata address on purpose). |
 | `MCPSONAR_OUTBOUND_DENY` | — | CIDRs always blocked (wins over everything). |
 
+**TLS trust:** HTTPS is verified with the operating-system trust store on Windows and
+macOS, so enterprise root CAs installed there are honored. On Linux and in the container the
+system CA bundle is used. `SSL_CERT_FILE` / `SSL_CERT_DIR` override both.
+
 Private networks are allowed by default on purpose: watching the MCP servers on your own
 network is a primary use case. Requests sent through `HTTP(S)_PROXY` connect to the proxy,
 so the proxy must enforce its own destination rules.
