@@ -1,34 +1,53 @@
 """Single-admin authentication for the dashboard.
 
-Self-contained, no extra dependencies: passwords are hashed with PBKDF2 (stdlib), sessions
-are signed cookies (HMAC-SHA256 over a persisted secret). On first run no admin exists, so
-the login page offers a one-time "create admin" setup. When ``require_auth`` is off (behind a
-trusted proxy) the middleware is not installed and everything is open.
+Self-contained, no extra dependencies:
 
-``/metrics`` stays public so Prometheus can scrape it (it exposes only status gauges, no
-secrets); everything else requires a valid session.
+* **Passwords** are hashed with PBKDF2-HMAC-SHA256 (stdlib) at 600k iterations, stored as
+  ``pbkdf2_sha256$<iterations>$<hex>``. Hashes from v0.5 and earlier (bare hex, 200k
+  iterations) still verify and are re-hashed transparently on the next successful login.
+  Hashing runs in a worker thread so a login never stalls the event loop (and the checks).
+* **Sessions** are random 256-bit tokens. Only their SHA-256 is stored (``sessions`` table),
+  so logout really revokes a session and a leaked database does not leak live cookies.
+* **Cookies** are ``HttpOnly`` + ``SameSite=Lax``; ``Secure`` is set when the request
+  arrived over HTTPS (``cookie_secure="auto"``, the default — uvicorn derives the scheme from
+  ``X-Forwarded-Proto`` only for proxies listed in ``FORWARDED_ALLOW_IPS``), or always/never.
+* **First-admin bootstrap**: while no admin exists, ``/api/auth/setup`` creates one. When the
+  app is given a ``setup_token`` (``mcpsonar run`` always gives one: random and printed in the
+  log, or taken from ``MCPSONAR_SETUP_TOKEN``), setup requires it — so whoever reaches a
+  freshly started, publicly exposed instance first cannot claim it. Creation is atomic: of
+  two concurrent setup requests, exactly one wins.
+* **Brute force**: repeated failed logins from one client address are throttled (429).
+
+When ``require_auth`` is off (``--no-auth``, behind a trusted proxy / on localhost) the
+middleware is not installed and everything is open. ``/metrics`` stays outside the login so
+Prometheus can scrape it (protect it with ``MCPSONAR_METRICS_TOKEN`` if it must not be public).
 """
 
 from __future__ import annotations
 
-import base64
+import asyncio
 import hashlib
 import hmac
-import json
 import secrets
 import time
-from typing import TYPE_CHECKING
+from collections import deque
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from .storage import Storage
 
 COOKIE_NAME = "mcpsonar_session"
 MAX_AGE = 7 * 24 * 3600  # 7 days
-_ITERATIONS = 200_000
+PBKDF2_ITERATIONS = 600_000  # OWASP Password Storage Cheat Sheet value for PBKDF2-HMAC-SHA256
+LEGACY_ITERATIONS = 200_000  # bare-hex hashes written by v0.5 and earlier
+MIN_PASSWORD_LEN = 8
+MAX_PASSWORD_LEN = 1024  # PBKDF2 cost grows with input length; don't let a request pick it
+MAX_USERNAME_LEN = 64
+_HASH_PREFIX = "pbkdf2_sha256"
 _PUBLIC_PATHS = {
     "/login",
     "/api/auth/status",
@@ -38,70 +57,140 @@ _PUBLIC_PATHS = {
     "/favicon.ico",
 }
 
+CookieSecure = Literal["auto", "always", "never"]
 
-# ---- password hashing (used by storage) ------------------------------------ #
-def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
-    """Return (salt_hex, hash_hex) for a password using PBKDF2-HMAC-SHA256."""
+
+# ---- password hashing ------------------------------------------------------- #
+def hash_password(
+    password: str, salt: str | None = None, iterations: int = PBKDF2_ITERATIONS
+) -> tuple[str, str]:
+    """Return ``(salt_hex, encoded_hash)`` for a password (PBKDF2-HMAC-SHA256)."""
     salt = salt or secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), _ITERATIONS)
-    return salt, dk.hex()
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), iterations)
+    return salt, f"{_HASH_PREFIX}${iterations}${dk.hex()}"
 
 
-def verify_password(password: str, salt: str, expected_hash: str) -> bool:
-    _, computed = hash_password(password, salt)
-    return hmac.compare_digest(computed, expected_hash)
+def _parse_hash(encoded: str) -> tuple[int, str]:
+    if encoded.startswith(_HASH_PREFIX + "$"):
+        _, iterations, digest = encoded.split("$", 2)
+        return int(iterations), digest
+    return LEGACY_ITERATIONS, encoded  # v0.5: bare hex digest
 
 
-# ---- signed session cookie ------------------------------------------------- #
-def _b64e(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+def verify_password(password: str, salt: str, encoded: str) -> bool:
+    iterations, digest = _parse_hash(encoded)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), iterations)
+    return hmac.compare_digest(dk.hex(), digest)
 
 
-def _b64d(s: str) -> bytes:
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+def needs_rehash(encoded: str) -> bool:
+    """True for hashes weaker than the current policy (upgrade them on the next login)."""
+    return _parse_hash(encoded)[0] < PBKDF2_ITERATIONS
 
 
-def sign_session(payload: dict, secret: str) -> str:
-    body = _b64e(json.dumps(payload, separators=(",", ":")).encode())
-    sig = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
-    return f"{body}.{sig}"
+# ---- session tokens --------------------------------------------------------- #
+def new_session_token() -> str:
+    return secrets.token_urlsafe(32)
 
 
-def verify_session(token: str | None, secret: str, max_age: int = MAX_AGE) -> dict | None:
-    if not token or "." not in token:
-        return None
-    body, sig = token.split(".", 1)
-    expected = hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(sig, expected):
-        return None
-    try:
-        payload = json.loads(_b64d(body))
-    except Exception:
-        return None
-    if time.time() - payload.get("iat", 0) > max_age:
-        return None
-    return payload
+def token_digest(token: str) -> str:
+    """What the database stores for a session token (never the token itself)."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# ---- brute-force throttling ------------------------------------------------- #
+class LoginThrottle:
+    """Sliding-window limit on *failed* attempts per client address.
+
+    Keyed by address only (not by username) so a stranger cannot lock the admin out by
+    failing logins for "admin". The address is uvicorn's view of the client: it honours
+    ``X-Forwarded-For`` only from proxies listed in ``FORWARDED_ALLOW_IPS``.
+    """
+
+    def __init__(
+        self, max_failures: int = 10, window_s: float = 900.0, max_keys: int = 10_000
+    ) -> None:
+        self.max_failures = max_failures
+        self.window_s = window_s
+        self._max_keys = max_keys
+        self._failures: dict[str, deque[float]] = {}
+
+    def _recent(self, key: str, now: float) -> deque[float]:
+        q = self._failures.get(key)
+        if q is None:
+            return deque()
+        while q and now - q[0] > self.window_s:
+            q.popleft()
+        if not q:
+            del self._failures[key]
+        return q
+
+    def retry_after(self, key: str, now: float | None = None) -> int:
+        """Seconds until ``key`` may try again (0 = allowed now)."""
+        now = time.monotonic() if now is None else now
+        q = self._recent(key, now)
+        if len(q) < self.max_failures:
+            return 0
+        return max(1, int(self.window_s - (now - q[0])) + 1)
+
+    def failure(self, key: str, now: float | None = None) -> None:
+        now = time.monotonic() if now is None else now
+        if key not in self._failures and len(self._failures) >= self._max_keys:
+            # Bounded memory: forget the client whose last failure is the oldest.
+            stalest = min(self._failures, key=lambda k: self._failures[k][-1])
+            del self._failures[stalest]
+        self._failures.setdefault(key, deque()).append(now)
+
+    def reset(self, key: str) -> None:
+        self._failures.pop(key, None)
 
 
 class _Credentials(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=MAX_USERNAME_LEN)
+    password: str = Field(max_length=MAX_PASSWORD_LEN)
 
 
-def register_auth(app: FastAPI, storage: Storage, require_auth: bool = True) -> None:
+class _SetupRequest(_Credentials):
+    setup_token: str | None = Field(default=None, max_length=256)
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def register_auth(
+    app: FastAPI,
+    storage: Storage,
+    require_auth: bool = True,
+    *,
+    setup_token: str | None = None,
+    cookie_secure: CookieSecure = "auto",
+    throttle: LoginThrottle | None = None,
+) -> None:
     """Install the auth middleware (if enabled) and the auth routes + login page."""
-    _secret: dict[str, str] = {}
+    throttle = throttle or LoginThrottle()
+    setup_lock = asyncio.Lock()
 
-    async def secret() -> str:
-        if "s" not in _secret:
-            _secret["s"] = await storage.get_or_create_session_secret()
-        return _secret["s"]
+    def _too_many(key: str) -> None:
+        if wait := throttle.retry_after(key):
+            raise HTTPException(
+                429, "too many failed attempts, try again later", {"Retry-After": str(wait)}
+            )
 
-    def _set_cookie(resp: JSONResponse, username: str, token: str) -> JSONResponse:
+    def _start_session(request: Request, token: str) -> JSONResponse:
+        secure = cookie_secure == "always" or (
+            cookie_secure == "auto" and request.url.scheme == "https"
+        )
+        resp = JSONResponse({"ok": True})
         resp.set_cookie(
-            COOKIE_NAME, token, httponly=True, samesite="lax", max_age=MAX_AGE, path="/"
+            COOKIE_NAME, token, httponly=True, samesite="lax", secure=secure,
+            max_age=MAX_AGE, path="/",
         )
         return resp
+
+    async def _current_user(request: Request) -> str | None:
+        token = request.cookies.get(COOKIE_NAME)
+        return await storage.get_session_user(token) if token else None
 
     if require_auth:
 
@@ -110,45 +199,63 @@ def register_auth(app: FastAPI, storage: Storage, require_auth: bool = True) -> 
             path = request.url.path
             if path in _PUBLIC_PATHS:
                 return await call_next(request)
-            user = verify_session(request.cookies.get(COOKIE_NAME), await secret())
+            user = await _current_user(request)
             if user is None:
                 if path.startswith("/api/"):
                     return JSONResponse({"detail": "authentication required"}, status_code=401)
                 return RedirectResponse("/login", status_code=302)
-            request.state.user = user.get("u")
+            request.state.user = user
             return await call_next(request)
 
     @app.get("/api/auth/status")
     async def auth_status(request: Request):
-        user = verify_session(request.cookies.get(COOKIE_NAME), await secret())
+        user = await _current_user(request)
+        setup_required = not await storage.has_admin()
         return {
             "auth_enabled": require_auth,
             "authenticated": (user is not None) or (not require_auth),
-            "setup_required": not await storage.has_admin(),
-            "username": user.get("u") if user else None,
+            "setup_required": setup_required,
+            "setup_token_required": setup_required and setup_token is not None,
+            "username": user,
         }
 
     @app.post("/api/auth/setup")
-    async def auth_setup(creds: _Credentials):
-        if await storage.has_admin():
-            raise HTTPException(400, "an admin account already exists")
-        if not creds.username.strip():
+    async def auth_setup(body: _SetupRequest, request: Request):
+        key = _client_key(request)
+        if setup_token is not None:
+            _too_many(key)  # the setup token must not be guessable either
+            if not hmac.compare_digest((body.setup_token or "").encode(), setup_token.encode()):
+                throttle.failure(key)
+                raise HTTPException(
+                    403, "a valid setup token is required: it is printed in the server log at "
+                    "startup (or set it with MCPSONAR_SETUP_TOKEN)",
+                )
+        username = body.username.strip()
+        if not username:
             raise HTTPException(400, "username is required")
-        if len(creds.password) < 8:
-            raise HTTPException(400, "password must be at least 8 characters")
-        await storage.create_admin(creds.username.strip(), creds.password)
-        token = sign_session({"u": creds.username.strip(), "iat": int(time.time())}, await secret())
-        return _set_cookie(JSONResponse({"ok": True}), creds.username.strip(), token)
+        if len(body.password) < MIN_PASSWORD_LEN:
+            raise HTTPException(400, f"password must be at least {MIN_PASSWORD_LEN} characters")
+        async with setup_lock:  # the insert is atomic anyway; the lock keeps the error clean
+            if not await storage.create_first_admin(username, body.password):
+                raise HTTPException(400, "an admin account already exists")
+        throttle.reset(key)
+        return _start_session(request, await storage.create_session(username, MAX_AGE))
 
     @app.post("/api/auth/login")
-    async def auth_login(creds: _Credentials):
+    async def auth_login(creds: _Credentials, request: Request):
+        key = _client_key(request)
+        _too_many(key)
         if not await storage.verify_credentials(creds.username, creds.password):
+            throttle.failure(key)
             raise HTTPException(401, "invalid username or password")
-        token = sign_session({"u": creds.username, "iat": int(time.time())}, await secret())
-        return _set_cookie(JSONResponse({"ok": True}), creds.username, token)
+        throttle.reset(key)
+        return _start_session(request, await storage.create_session(creds.username, MAX_AGE))
 
     @app.post("/api/auth/logout")
-    async def auth_logout():
+    async def auth_logout(request: Request):
+        token = request.cookies.get(COOKIE_NAME)
+        if token:
+            await storage.delete_session(token)  # revoke server-side, not just in the browser
         resp = JSONResponse({"ok": True})
         resp.delete_cookie(COOKIE_NAME, path="/")
         return resp
@@ -195,6 +302,7 @@ _LOGIN_PAGE = r"""<!doctype html>
          background:linear-gradient(150deg,var(--accent),var(--accent-strong));color:var(--accent-ink);
          font:inherit;font-weight:650;cursor:pointer;transition:filter .12s;}
   button:hover{filter:brightness(1.06);}
+  .hint{color:var(--muted);font-size:12px;margin-top:6px;}
   .err{color:var(--down);font-size:13px;min-height:18px;margin-top:12px;}
 </style></head>
 <body>
@@ -204,15 +312,22 @@ _LOGIN_PAGE = r"""<!doctype html>
   <div class="sub" id="sub">Sign in</div>
   <label>Username</label><input id="u" autocomplete="username" autofocus>
   <label>Password</label><input id="p" type="password" autocomplete="current-password">
+  <div id="tokRow" style="display:none"><label>Setup token</label>
+    <input id="t" autocomplete="off" spellcheck="false" placeholder="printed in the server log">
+    <div class="hint">Shown in the log when mcpsonar starts (<code>docker logs mcpsonar</code>).</div></div>
   <button id="btn" type="submit">Sign in</button>
   <div class="err" id="err"></div>
 </form>
 <script>
-let setup = false;
+let setup = false, needToken = false;
+const qsToken = new URLSearchParams(location.search).get("setup_token");
+if (qsToken) history.replaceState(null, "", "/login");  // keep it out of the address bar
 async function init(){
   const s = await (await fetch("/api/auth/status")).json();
   if (s.authenticated && !s.setup_required){ location.href="/"; return; }
-  setup = s.setup_required;
+  setup = s.setup_required; needToken = !!s.setup_token_required;
+  if (needToken){ document.getElementById("tokRow").style.display="";
+    if (qsToken) document.getElementById("t").value = qsToken; }
   document.getElementById("sub").textContent = setup
     ? "Create your admin account" : "Sign in to continue";
   document.getElementById("btn").textContent = setup ? "Create account" : "Sign in";
@@ -220,13 +335,15 @@ async function init(){
 async function submitForm(e){
   e.preventDefault();
   const err = document.getElementById("err"); err.textContent="";
-  const body = JSON.stringify({username:document.getElementById("u").value,
-                               password:document.getElementById("p").value});
+  const data = {username:document.getElementById("u").value,
+                password:document.getElementById("p").value};
+  if (setup && needToken) data.setup_token = document.getElementById("t").value.trim();
+  const body = JSON.stringify(data);
   const r = await fetch(setup ? "/api/auth/setup" : "/api/auth/login",
     {method:"POST", headers:{"Content-Type":"application/json"}, body});
   if (r.ok){ location.href="/"; return; }
   const d = await r.json().catch(()=>({}));
-  err.textContent = d.detail || "Sign-in failed";
+  err.textContent = typeof d.detail === "string" ? d.detail : "Sign-in failed";
 }
 init();
 </script>

@@ -38,9 +38,15 @@ def run_minimal_common_validation(init: InitializeResult, tools: list[Tool]) -> 
         issues.append("server declared an empty protocolVersion")
     if init.serverInfo is None or not init.serverInfo.name:
         issues.append("server did not report serverInfo.name")
+    seen: set[str] = set()
     for tool in tools:
         if not tool.name:
             issues.append("a listed tool has an empty name")
+        elif tool.name in seen:
+            # Two definitions under one name: which one a client uses is undefined, and a
+            # second copy is an easy way to shadow a reviewed tool.
+            issues.append(f"tool name '{tool.name}' is listed more than once")
+        seen.add(tool.name)
     return issues
 
 

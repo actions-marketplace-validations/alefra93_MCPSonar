@@ -1,0 +1,82 @@
+"""A scripted stdio MCP server for protocol-edge tests (pagination, hangs, probe safety).
+
+    python scripted_server.py <mode> [marker_file]
+
+Modes:
+  pages     12 tools served 5 per page via nextCursor
+  loop      a cursor that points back to itself forever
+  dup       two tools with the same name
+  hang      reads stdin but never answers anything
+  probes    a read-only tool and a destructive one; calling the destructive one appends
+            to ``marker_file`` so a test can prove it was never invoked
+
+Only ever launched by the test suite, from this repository.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+
+import anyio
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.stdio import stdio_server
+
+MODE = sys.argv[1]
+MARKER = sys.argv[2] if len(sys.argv) > 2 else None
+SCHEMA = {"type": "object", "properties": {}}
+
+
+def _tool(name: str, **kw) -> types.Tool:
+    return types.Tool(name=name, description=f"tool {name}", inputSchema=SCHEMA, **kw)
+
+
+server = Server("scripted")
+
+
+@server.list_tools()
+async def list_tools(req: types.ListToolsRequest) -> types.ListToolsResult:
+    cursor = req.params.cursor if req.params else None
+    if MODE == "pages":
+        start = int(cursor or 0)
+        names = [f"t{i:02d}" for i in range(12)]
+        page = names[start:start + 5]
+        nxt = str(start + 5) if start + 5 < len(names) else None
+        return types.ListToolsResult(tools=[_tool(n) for n in page], nextCursor=nxt)
+    if MODE == "loop":
+        return types.ListToolsResult(tools=[_tool("again")], nextCursor="same")
+    if MODE == "dup":
+        return types.ListToolsResult(tools=[_tool("twin"), _tool("twin")])
+    # probes
+    return types.ListToolsResult(tools=[
+        _tool("status", annotations=types.ToolAnnotations(readOnlyHint=True)),
+        _tool("wipe", annotations=types.ToolAnnotations(destructiveHint=True)),
+    ])
+
+
+def _record_call() -> None:
+    with open(MARKER, "a", encoding="utf-8") as fh:
+        fh.write("wipe called\n")
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+    if name == "wipe" and MARKER:
+        _record_call()
+    return [types.TextContent(type="text", text="ok")]
+
+
+def hang() -> None:
+    while True:
+        sys.stdin.readline()
+        time.sleep(0.05)
+
+
+async def main() -> None:
+    async with stdio_server() as (read, write):
+        await server.run(read, write, server.create_initialization_options())
+
+
+if __name__ == "__main__":
+    hang() if MODE == "hang" else anyio.run(main)

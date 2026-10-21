@@ -11,25 +11,52 @@ Also serves ``/api/status`` (live state + recent heartbeat for polling) and Prom
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+import hmac
+from collections.abc import Iterable
+
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from .adapters import CONTENT_TYPE, render_metrics
 from .api import register_api
-from .auth import register_auth
+from .auth import CookieSecure, register_auth
+from .redact import redact_url
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage
+from .websec import DEFAULT_MAX_BODY_BYTES, install_web_security
 
 _HEARTBEAT_POINTS = 40
 
 
 def create_app(
-    storage: Storage, store: StateStore, scheduler: Scheduler, require_auth: bool = True
+    storage: Storage,
+    store: StateStore,
+    scheduler: Scheduler,
+    require_auth: bool = True,
+    *,
+    setup_token: str | None = None,
+    cookie_secure: CookieSecure = "auto",
+    allowed_hosts: list[str] | None = None,
+    trusted_origins: Iterable[str] = (),
+    allow_stdio_api: bool | None = None,
+    metrics_token: str | None = None,
+    max_body_bytes: int = DEFAULT_MAX_BODY_BYTES,
 ) -> FastAPI:
+    """Build the dashboard/API app.
+
+    ``allow_stdio_api`` (default: ``require_auth``) decides whether stdio servers — which
+    make mcpsonar launch a command — may be created or changed over the HTTP API. Without a
+    login, anyone who can reach the port could otherwise run commands on this host; stdio
+    servers can still come from the seed YAML (``--config``).
+    """
     app = FastAPI(title="mcpsonar", docs_url=None, redoc_url=None)
-    register_auth(app, storage, require_auth)
-    register_api(app, storage, store, scheduler)
+    register_auth(app, storage, require_auth, setup_token=setup_token,
+                  cookie_secure=cookie_secure)
+    register_api(app, storage, store, scheduler,
+                 allow_stdio=require_auth if allow_stdio_api is None else allow_stdio_api)
+    install_web_security(app, allowed_hosts=allowed_hosts, trusted_origins=trusted_origins,
+                         max_body_bytes=max_body_bytes)
 
     @app.get("/api/status")
     async def api_status() -> JSONResponse:
@@ -50,7 +77,7 @@ def create_app(
                 "name": s.name,
                 "enabled": s.enabled,
                 "transport": s.transport.value,
-                "target": s.url or s.command or "",
+                "target": redact_url(s.url) or s.command or "",
                 "event": snap[s.id].model_dump(mode="json") if s.id in snap else None,
                 "recent": [
                     {
@@ -65,7 +92,14 @@ def create_app(
         return JSONResponse(out)
 
     @app.get("/metrics")
-    async def metrics() -> PlainTextResponse:
+    async def metrics(request: Request) -> PlainTextResponse:
+        if metrics_token is not None:
+            given = request.headers.get("authorization", "")
+            if not hmac.compare_digest(given.encode(), f"Bearer {metrics_token}".encode()):
+                return PlainTextResponse(
+                    "bearer token required", status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
         servers = await storage.list_servers()
         return PlainTextResponse(render_metrics(servers, store), media_type=CONTENT_TYPE)
 
@@ -638,7 +672,10 @@ async function saveForm() {
     let cur=null; if(id) cur=await api("GET","/api/servers/"+id);
     const payload=formPayload(cur?cur.enabled:true);
     if(cur){ payload.webhooks=cur.webhooks;
-      payload.anomaly=Object.assign({}, cur.anomaly, payload.anomaly); }
+      payload.anomaly=Object.assign({}, cur.anomaly, payload.anomaly);
+      // The form edits probe *names* only: keep each kept probe's arguments/options.
+      const prev=Object.fromEntries((cur.tools_to_test||[]).map(t=>[t.name,t]));
+      payload.tools_to_test=payload.tools_to_test.map(n=>prev[n]||n); }
     if(id) await api("PUT","/api/servers/"+id,payload); else await api("POST","/api/servers",payload);
     closeForm(); refresh();
   } catch(e){ $("formErr").textContent="Error: "+e.message; }

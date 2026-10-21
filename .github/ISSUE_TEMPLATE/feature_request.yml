@@ -1,0 +1,21 @@
+name: Feature request
+description: An idea or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve for you?
+      description: Your setup and what you are trying to achieve help more than a proposed solution.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like MCPSonar to do?
+  - type: checkboxes
+    id: roadmap
+    attributes:
+      label: Checked
+      options:
+        - label: I looked at docs/product-roadmap.md and existing issues

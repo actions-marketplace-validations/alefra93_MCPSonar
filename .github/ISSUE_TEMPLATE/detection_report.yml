@@ -1,0 +1,34 @@
+name: Detection report (false positive / missed poisoning)
+description: A tool definition MCPSonar flagged wrongly, or one it should have flagged
+labels: [detection]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports become test fixtures, so a minimal definition is ideal.
+        Remove anything confidential from the definition before pasting it.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [False positive (harmless text flagged), False negative (poisoning missed), Wrong severity]
+    validations:
+      required: true
+  - type: input
+    id: rule
+    attributes:
+      label: Rule ID (if any)
+      placeholder: e.g. prompt-injection, hidden-unicode
+  - type: textarea
+    id: definition
+    attributes:
+      label: Tool definition (JSON)
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this wrong?
+    validations:
+      required: true

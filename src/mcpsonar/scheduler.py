@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -25,6 +26,8 @@ from .adapters.base import BaseAdapter
 from .check_engine import raise_if_cancelling
 from .models import CheckEvent, MonitoredServer
 from .monitor import process_check
+from .netpolicy import policy_transport
+from .redact import scrub, secret_values
 from .state import StateStore
 from .storage import Storage
 
@@ -42,8 +45,14 @@ class Scheduler:
     ) -> None:
         self._storage = storage
         self._store = store
-        self._client = httpx.AsyncClient(timeout=http_timeout)
+        # Webhook/Kuma deliveries obey the same outbound policy as checks.
+        self._client = httpx.AsyncClient(
+            timeout=http_timeout, transport=policy_transport(), max_redirects=5
+        )
         self._tasks: dict[str, asyncio.Task] = {}
+        # One check at a time per server: "Check now", the review re-check and the loop
+        # would otherwise diff the same tool snapshot concurrently and record changes twice.
+        self._check_locks: dict[str, asyncio.Lock] = {}
         self._adapters: dict[str, list[BaseAdapter]] = {}
         self._retention_days = retention_days
         self._prune_interval_s = prune_interval_s
@@ -98,6 +107,7 @@ class Scheduler:
     async def remove(self, server_id: str) -> None:
         task = self._tasks.pop(server_id, None)
         self._adapters.pop(server_id, None)
+        self._check_locks.pop(server_id, None)
         if task is not None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
@@ -114,7 +124,9 @@ class Scheduler:
 
     async def run_once(self, server: MonitoredServer) -> CheckEvent:
         """Check a server now: analyse, persist, update live state and notify adapters."""
-        event = await process_check(self._storage, server.id, server.to_server_config())
+        lock = self._check_locks.setdefault(server.id, asyncio.Lock())
+        async with lock:
+            event = await process_check(self._storage, server.id, server.to_server_config())
         self._store.update(event)
         logger.info(
             "%s (%s) -> %s (%.0fms, spec=%s)%s",
@@ -128,7 +140,7 @@ class Scheduler:
         adapters = self._adapters.get(server.id)
         if adapters is None:  # e.g. a paused server checked on demand
             adapters = build_push_adapters(server.to_server_config(), self._client)
-        await self._emit(server.id, event, adapters)
+        await self._emit(server.id, event, adapters, secret_values(server))
         return event
 
     async def _run_server(self, server: MonitoredServer) -> None:
@@ -143,12 +155,18 @@ class Scheduler:
             await asyncio.sleep(server.check_interval_seconds)
 
     async def _emit(
-        self, server_id: str, event: CheckEvent, adapters: list[BaseAdapter]
+        self,
+        server_id: str,
+        event: CheckEvent,
+        adapters: list[BaseAdapter],
+        secrets: Iterable[str] = (),
     ) -> None:
         for adapter in adapters:
             try:
                 await adapter.send(event)
             except Exception as exc:
+                # httpx errors quote the URL, and webhook URLs embed their token.
                 logger.warning(
-                    "adapter %s failed for %s: %s", adapter.name, server_id, exc
+                    "adapter %s failed for %s: %s", adapter.name, server_id,
+                    scrub(str(exc), secrets),
                 )

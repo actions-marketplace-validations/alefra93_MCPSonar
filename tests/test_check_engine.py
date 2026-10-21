@@ -42,8 +42,11 @@ def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> None:
 def mock_server():
     proc = subprocess.Popen(
         [sys.executable, str(MOCK), "--host", HOST, "--port", str(PORT)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        # Never PIPE without reading it: once the server's log output (tracebacks from the
+        # failing `boom` tool) fills the OS pipe buffer, the server blocks on write and
+        # every later request times out.
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     try:
         _wait_for_port(HOST, PORT)

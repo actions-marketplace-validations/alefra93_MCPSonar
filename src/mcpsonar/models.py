@@ -17,8 +17,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # --------------------------------------------------------------------------- #
@@ -140,6 +141,17 @@ class CheckEvent(BaseModel):
 # --------------------------------------------------------------------------- #
 # Configuration models
 # --------------------------------------------------------------------------- #
+def _check_http_url(value: str) -> str:
+    """Only http(s) URLs with a host: no file://, no scheme-less strings, no bare paths."""
+    parts = urlsplit(value.strip())
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError("must be an http:// or https:// URL with a host")
+    return value.strip()
+
+
+HttpUrlStr = Annotated[str, AfterValidator(_check_http_url)]
+
+
 class Thresholds(BaseModel):
     """Latency thresholds that drive up/degraded/down classification.
 
@@ -176,7 +188,7 @@ class UptimeKumaWebhook(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["uptime_kuma"] = "uptime_kuma"
-    push_url: str = Field(description="Uptime Kuma push URL, e.g. .../api/push/<token>.")
+    push_url: HttpUrlStr = Field(description="Uptime Kuma push URL, e.g. .../api/push/<token>.")
 
 
 class GenericWebhook(BaseModel):
@@ -185,7 +197,7 @@ class GenericWebhook(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["generic"] = "generic"
-    url: str
+    url: HttpUrlStr
     on: list[CheckStatus] = Field(
         default_factory=lambda: [CheckStatus.DOWN, CheckStatus.DEGRADED],
         description="Only fire this webhook when the event status is in this list.",
@@ -222,6 +234,17 @@ class ToolProbe(BaseModel):
         default=None,
         description="Arguments passed to call_tool. None calls the tool with no arguments.",
     )
+    timeout_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description="Timeout for this call (default: the server's request timeout).",
+    )
+    allow_destructive: bool = Field(
+        default=False,
+        description="Probe the tool even if its annotations declare it destructive. "
+        "Annotations are the server's own claims, not guarantees: only probe tools that are "
+        "safe to call repeatedly.",
+    )
 
 
 class ServerConfig(BaseModel):
@@ -237,7 +260,9 @@ class ServerConfig(BaseModel):
     transport: TransportType = TransportType.HTTP
 
     # http / sse
-    url: str | None = Field(default=None, description="Endpoint of the MCP server (http/sse).")
+    url: HttpUrlStr | None = Field(
+        default=None, description="Endpoint of the MCP server (http/sse)."
+    )
     headers: dict[str, str] = Field(
         default_factory=dict,
         description="Extra HTTP headers for http/sse, e.g. Authorization for a protected server.",

@@ -15,6 +15,7 @@ import logging
 import httpx
 
 from ..models import CheckEvent, CheckStatus
+from ..redact import redact_url, scrub
 from .base import BaseAdapter
 
 logger = logging.getLogger("mcpsonar.adapters.generic_webhook")
@@ -51,7 +52,8 @@ class GenericWebhookAdapter(BaseAdapter):
             try:
                 response = await self._client.post(self._url, json=payload)
                 response.raise_for_status()
-                logger.debug("posted %s to %s (attempt %d)", event.server_id, self._url, attempt)
+                logger.debug("posted %s to %s (attempt %d)", event.server_id,
+                             redact_url(self._url, whole_path=True), attempt)
                 return
             except Exception as exc:
                 last_exc = exc
@@ -60,10 +62,10 @@ class GenericWebhookAdapter(BaseAdapter):
                     # failure once at warning, so keep these at debug to avoid log spam.
                     logger.debug(
                         "webhook POST to %s failed (attempt %d/%d): %s; retrying in %.1fs",
-                        self._url,
+                        redact_url(self._url, whole_path=True),
                         attempt,
                         self._max_retries,
-                        exc,
+                        scrub(str(exc), [self._url]),
                         delay,
                     )
                     await asyncio.sleep(delay)

@@ -101,3 +101,35 @@ async def test_scheduler_prunes_old_history():
     finally:
         await scheduler.stop()
         await storage.close()
+
+
+async def test_checks_of_one_server_never_overlap(monkeypatch):
+    """"Check now", the post-review re-check and the loop must not run concurrently for
+    the same server: they would diff the same tool snapshot and record changes twice."""
+    from mcpsonar import scheduler as sched_mod
+
+    active = 0
+    peak = 0
+
+    async def slow_check(storage, server_id, cfg):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.05)
+        active -= 1
+        return CheckEvent(server_id=server_id, status=CheckStatus.UP, latency_ms=1.0)
+
+    monkeypatch.setattr(sched_mod, "process_check", slow_check)
+    storage = await Storage.open(":memory:")
+    scheduler = Scheduler(storage, StateStore())
+    try:
+        a = await storage.create_server("a", ServerConfig(url=DEAD_URL), enabled=False)
+        b = await storage.create_server("b", ServerConfig(url=DEAD_URL), enabled=False)
+        await asyncio.gather(*(scheduler.run_once(a) for _ in range(4)))
+        assert peak == 1
+        peak = 0
+        await asyncio.gather(scheduler.run_once(a), scheduler.run_once(b))
+        assert peak == 2  # different servers still run in parallel
+    finally:
+        await scheduler.stop()
+        await storage.close()
