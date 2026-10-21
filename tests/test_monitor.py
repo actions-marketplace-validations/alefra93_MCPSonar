@@ -158,3 +158,17 @@ async def test_anomalies_persist_in_history(storage, engine):
     hist = await storage.get_history("s1")
     assert hist[-1].anomalies[0].kind == "latency_spike"
     assert hist[-1].latency_score > 4
+
+
+async def test_degrade_policy_holds_for_the_whole_episode(storage, engine):
+    cfg = ServerConfig(url="http://x", anomaly={"degrade": True})
+    await _feed(storage, engine, cfg, [50 + (i % 5) for i in range(30)])
+    statuses = []
+    for lat in (400, 400, 52):
+        ev = await _feed(storage, engine, cfg, [lat])
+        statuses.append((ev.status, [(a.kind, a.ongoing) for a in ev.anomalies]))
+    assert statuses == [
+        (CheckStatus.DEGRADED, [("latency_spike", False)]),
+        (CheckStatus.DEGRADED, [("latency_spike", True)]),
+        (CheckStatus.UP, [("latency_recovered", False)]),  # a recovery doesn't degrade
+    ]

@@ -41,7 +41,8 @@ class GenericWebhookAdapter(BaseAdapter):
         self._backoff = backoff
 
     async def send(self, event: CheckEvent) -> None:
-        if event.status not in self._on and not (self._on_anomaly and event.anomalies):
+        new = any(not a.ongoing for a in event.anomalies)  # an episode is notified once
+        if event.status not in self._on and not (self._on_anomaly and new):
             return  # nothing this webhook cares about
 
         payload = event.model_dump(mode="json")

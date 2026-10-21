@@ -53,10 +53,22 @@ class Anomaly(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["latency_spike", "latency_shift", "flapping", "tool_change", "response_drift"]
+    kind: Literal[
+        "latency_spike", "latency_shift", "latency_recovered", "flapping", "tool_change",
+        "response_drift",
+    ]
     detail: str
     score: float | None = Field(
         default=None, description="Strength of the signal (z-score / t-statistic), if any."
+    )
+    ongoing: bool = Field(
+        default=False,
+        description="True when this check continues an episode already reported by an earlier "
+        "check (e.g. the 2nd, 3rd ... slow check in a row). Kept in the history, not notified.",
+    )
+    since: datetime | None = Field(
+        default=None,
+        description="latency_shift only: when the new latency level started.",
     )
 
 
@@ -124,12 +136,14 @@ class CheckEvent(BaseModel):
     )
     anomalies: list[Anomaly] = Field(
         default_factory=list,
-        description="Things newly detected by *this* check (latency spike/shift, flapping, "
-        "tool changes). Empty on a nominal check.",
+        description="Things detected by *this* check (latency spike/shift/recovery, flapping, "
+        "tool changes, response drift). Entries with ongoing=true continue an episode an "
+        "earlier check already reported. Empty on a nominal check.",
     )
     latency_baseline_ms: float | None = Field(
         default=None,
-        description="Median latency of recent healthy checks (None until enough history).",
+        description="Median latency of recent healthy checks (None until enough history; "
+        "provisional, with stricter spike rules, before 20 checks).",
     )
     latency_score: float | None = Field(
         default=None,

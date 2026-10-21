@@ -24,6 +24,23 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     probes; `drift: off` disables it per probe.
   - The status is not affected. See [Response drift](docs/configuration.md#response-drift).
 
+### Anomaly detection
+- **Episodes.** A run of slow checks is one episode: the first `latency_spike` is notified,
+  the following ones carry `ongoing: true` (kept in the history, not notified), and the
+  first normal check reports a new **`latency_recovered`** anomaly. Generic webhooks with
+  `on_anomaly` now fire once per episode plus the recovery, instead of on every slow check.
+  `anomaly.degrade` keeps the server degraded for the whole episode.
+- **Baseline poisoning.** Slow checks are left out of the baseline while they are a
+  minority, so repeated bursts no longer inflate it and hide milder spikes.
+- **Sustained regression vs. burst.** A latency shift now needs most of the new segment
+  to sit at the new level: a burst shorter than 8 checks was reported as a shift before.
+  Once reported, the new level becomes the baseline (with `since`, when it started).
+- **Cold start.** From the 8th check a provisional baseline flags blatant spikes only
+  (≥ 2× and 1.5× the sensitivity); the insights API reports `samples` and `provisional`.
+- **Zero MAD.** When over half the latencies are identical, the mean absolute deviation
+  stands in for the MAD.
+- A reproducible scenario corpus (`tests/corpus/anomaly_scenarios.py`) pins all of this.
+
 ### Reports and SARIF
 - `mcpsonar report` for one server or every server in `--config`, in **Markdown** (for an
   issue or PR comment), **JSON** or **SARIF 2.1.0**. It includes findings with each rule's

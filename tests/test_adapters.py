@@ -10,7 +10,7 @@ from mcpsonar.adapters import render_metrics
 from mcpsonar.adapters.generic_webhook import GenericWebhookAdapter
 from mcpsonar.adapters.uptime_kuma import UptimeKumaAdapter
 from mcpsonar.dashboard import create_app
-from mcpsonar.models import CheckEvent, CheckStatus, MonitoredServer, ServerConfig
+from mcpsonar.models import Anomaly, CheckEvent, CheckStatus, MonitoredServer, ServerConfig
 from mcpsonar.scheduler import Scheduler
 from mcpsonar.state import StateStore
 from mcpsonar.storage import Storage
@@ -73,6 +73,26 @@ async def test_generic_skips_status_not_in_on():
     await adapter.send(_event(CheckStatus.UP))  # UP not in on -> no request
     await client.aclose()
     assert calls == 0
+
+
+async def test_generic_fires_once_per_anomaly_episode():
+    calls = 0
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        return httpx2.Response(200)
+
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+    adapter = GenericWebhookAdapter("http://hook", [CheckStatus.DOWN], client)
+    spike = Anomaly(kind="latency_spike", detail="slow")
+    await adapter.send(_event(CheckStatus.UP, anomalies=[spike]))  # episode starts: fires
+    await adapter.send(_event(CheckStatus.UP, anomalies=[  # still slow: quiet
+        spike.model_copy(update={"ongoing": True})]))
+    await adapter.send(_event(CheckStatus.UP, anomalies=[  # recovery: fires
+        Anomaly(kind="latency_recovered", detail="back")]))
+    await client.aclose()
+    assert calls == 2
 
 
 async def test_generic_retries_then_succeeds():

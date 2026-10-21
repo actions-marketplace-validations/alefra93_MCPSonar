@@ -242,6 +242,13 @@ Anomaly detection:
 - alerts are deduplicated only through `anomaly_reported_since`;
 - the zero-MAD case relies on a 5 % floor.
 
+Addressed in v0.8 (IMPLEMENTED, TESTED): spike episodes are notified once and end with a
+`latency_recovered` event; slow checks are excluded from the baseline (resistance to
+burst poisoning; a gradual drift is still learned as normal, by design); a shift needs a
+sustained new level and then becomes the baseline; a provisional baseline covers the cold
+start; the mean absolute deviation replaces a zero MAD. Pinned by
+`tests/corpus/anomaly_scenarios.py`.
+
 **T-10 · Low · PLANNED**
 Probe responses are read whole; there is no output-size limit.
 

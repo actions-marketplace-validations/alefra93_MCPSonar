@@ -107,10 +107,20 @@ learns each server's own baseline from its recent healthy checks:
 
 - **Spikes** — robust z-score `(x − median) / (1.4826·MAD)`; median and MAD aren't dragged
   around by the very outliers being hunted. Must also matter in practice (≥ 1.3× and ≥ 20 ms).
+  A run of slow checks is **one episode**: notified once, the following slow checks are
+  marked `ongoing`, and the first normal check reports `latency_recovered`. Slow checks are
+  left out of the baseline, so repeated bursts can't drag it up and hide the next one.
 - **Level shifts** — change-point detection: the split of the recent window with the largest
   two-sample t-statistic on log-latency. Catches "it got 3× slower after Tuesday's deploy"
-  and tells you *when*. Reported once per shift.
+  and tells you *when*. Reported once per shift, only when the new level is sustained (a
+  short burst is a spike episode, not a shift); from then on it is the new baseline.
 - **Flapping** — too many status transitions in the last 20 checks.
+- **Cold start** — from the 8th check a provisional baseline catches only blatant spikes
+  (≥ 2×, 1.5× the sensitivity); full rules from the 20th.
+
+The expected behaviour is pinned by a corpus of reproducible scenarios
+(`tests/corpus/anomaly_scenarios.py`): bursts, outages mid-episode, sustained regressions,
+quantized latencies, baseline poisoning.
 
 Pure Python, no numpy. Informational by default; set `anomaly.degrade: true` to let
 anomalies degrade the status.
@@ -423,7 +433,8 @@ servers:
 - **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
   detail (and any anomalies) in the message; `down` maps to down.
 - **Generic webhook** — POSTs the raw `CheckEvent` JSON for statuses in `on`, plus any check
-  that detected something new when `on_anomaly` is set; retries 3× with backoff.
+  that detected something new when `on_anomaly` is set (once per episode, plus the recovery);
+  retries 3× with backoff.
 - **Prometheus** — `GET /metrics`: `mcpsonar_up`, `mcpsonar_status_code`, `mcpsonar_latency_ms`,
   `mcpsonar_latency_baseline_ms`, `mcpsonar_latency_anomaly_score`, `mcpsonar_anomalies`,
   `mcpsonar_tool_changes_pending`, `mcpsonar_tool_risks`, `mcpsonar_tools_failed`,

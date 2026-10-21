@@ -181,12 +181,14 @@ def register_api(
         )
         events = await storage.get_history(server_id, since=since, limit=limit)
         healthy = [e for e in events if e.status != CheckStatus.DOWN]
-        baseline = ad.robust_baseline([e.latency_ms for e in healthy])
+        baseline = ad.robust_baseline([e.latency_ms for e in healthy],
+                                      min_samples=ad.COLD_START_MIN)
         cp = ad.find_change_point([e.latency_ms for e in healthy])
         return {
             "baseline": None
             if baseline is None
-            else {"median_ms": baseline.median, "spread_ms": baseline.spread},
+            else {"median_ms": baseline.median, "spread_ms": baseline.spread,
+                  "samples": baseline.samples, "provisional": baseline.provisional},
             "change_point": None
             if cp is None
             else {
@@ -199,6 +201,7 @@ def register_api(
                 {"checked_at": e.checked_at.isoformat(), **a.model_dump(mode="json")}
                 for e in events
                 for a in e.anomalies
+                if not a.ongoing  # one entry per episode
             ],
         }
 

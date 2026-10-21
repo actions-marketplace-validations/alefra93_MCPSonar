@@ -786,7 +786,7 @@ function renderCharts(hist, ins){
     <div class="stats">
       <div><div class="k">Uptime</div><div class="v num">${uptime}%</div></div>
       <div><div class="k">Avg latency</div><div class="v num">${avg} ms</div></div>
-      <div><div class="k">Baseline</div><div class="v num">${ins.baseline?Math.round(ins.baseline.median_ms)+" ms":"learning…"}</div></div>
+      <div><div class="k">Baseline</div><div class="v num">${ins.baseline?Math.round(ins.baseline.median_ms)+" ms"+(ins.baseline.provisional?" (learning)":""):"learning…"}</div></div>
       <div><div class="k">Checks</div><div class="v num">${n}</div></div>
       ${cpText}
       <div><div class="k">Now</div><div style="margin-top:4px">${pill(last.status)}</div></div>
