@@ -31,7 +31,9 @@ async def test_phases_are_measured_and_consistent():
     assert all(v >= 0 for v in t.values())
     assert t["handshake"] == round(ev.latency_ms, 1)  # latency_ms keeps its meaning
     assert t["total"] >= t["handshake"] + t["discovery"]
-    assert t["probes"] == 0 and ev.tool_latency_ms == {}
+    # No probe configured: nothing is called, the phase is only the timer's own overhead
+    # (0.1 ms on a slow CI runner).
+    assert t["probes"] < 5 and ev.tool_latency_ms == {}
 
 
 async def test_tool_latency_only_for_tools_actually_called():
