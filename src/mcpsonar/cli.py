@@ -29,7 +29,7 @@ from .loader import ConfigError, load_config
 from .output import EXIT_INTERRUPTED
 from .scheduler import Scheduler
 from .state import StateStore
-from .storage import Storage
+from .storage import Storage, StorageError
 from .websec import LOOPBACK_HOSTS
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -328,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         except KeyboardInterrupt:
             return 0
-        except ConfigError as exc:
+        except (ConfigError, StorageError) as exc:
             logger.error("%s", exc)
             return 2
     return 0

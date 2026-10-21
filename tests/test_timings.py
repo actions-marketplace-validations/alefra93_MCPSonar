@@ -69,6 +69,7 @@ async def test_migration_adds_the_column_to_a_v07_database(tmp_path):
     await storage.close()
     with sqlite3.connect(db) as conn:  # make it look like a v0.7 database
         conn.execute("ALTER TABLE checks DROP COLUMN timings_json")
+        conn.execute("PRAGMA user_version = 1")  # v0.7.0's schema
     storage = await Storage.open(db)
     try:
         (old,) = await storage.get_history("s")

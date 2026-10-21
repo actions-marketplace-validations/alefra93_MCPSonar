@@ -252,9 +252,14 @@ start; the mean absolute deviation replaces a zero MAD. Pinned by
 **T-10 · Low · PLANNED**
 Probe responses are read whole; there is no output-size limit.
 
-**T-11 · Low · PLANNED**
+**T-11 · Low · IMPLEMENTED, TESTED in v0.8**
 SQLite uses one shared connection, no WAL, and ad-hoc `ALTER TABLE` migrations with no
 schema version.
+Resolved: versioned migrations (`PRAGMA user_version`) with a backup before migrating and
+a refusal of newer schemas; WAL with a separate read-only connection; one transaction per
+write under a single-writer lock. Tested against databases created by v0.5.0, v0.6.0 and
+v0.7.0. SQLite stays the only backend; the `Storage` class is the seam for an optional
+PostgreSQL backend if a real deployment needs one.
 
 **T-12 · Low · PLANNED**
 There is no password-change or session-list UI. Single admin only: no roles and no audit

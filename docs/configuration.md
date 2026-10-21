@@ -152,6 +152,25 @@ sqlite3 /data/mcpsonar.db ".backup '/backups/mcpsonar-$(date +%F).db'"
 The backup contains credentials and password hashes: encrypt it and restrict access. To
 share a configuration (an issue report, a colleague), use the redacted YAML export.
 
+Since v0.8 the database runs in WAL mode: next to `mcpsonar.db` you will see
+`mcpsonar.db-wal` and `mcpsonar.db-shm`. They are part of the database. Copying only the
+`.db` file of a running instance can lose the latest writes: use the online backup above,
+or stop mcpsonar first. Keep the database on a local disk or a Docker volume; WAL does
+not work on network file systems (NFS, SMB).
+
+### Schema versions and upgrades
+
+The database records its schema version, and mcpsonar migrates it forward on start, one
+numbered step at a time, each in its own transaction.
+
+- Before migrating an existing database, mcpsonar saves a copy next to it:
+  `mcpsonar.db.schema<N>.bak`, where N is the version it had. Delete it once the new
+  version runs well. It contains the same secrets as the database.
+- Databases from v0.5, v0.6 and v0.7 are upgraded automatically (they count as version 0).
+- Downgrading is not supported. An older mcpsonar refuses a database written by a newer
+  one, with a clear error and exit code 2, instead of misreading it. To go back, restore
+  the `.bak` taken before the upgrade.
+
 ## Reverse proxy and HTTPS
 
 For anything beyond localhost, terminate TLS in a reverse proxy and keep mcpsonar on

@@ -24,6 +24,20 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     probes; `drift: off` disables it per probe.
   - The status is not affected. See [Response drift](docs/configuration.md#response-drift).
 
+### Storage
+- **Versioned schema.** The database records its schema version (`PRAGMA user_version`)
+  and is migrated forward on start by numbered steps, each in its own transaction.
+  Databases from v0.5, v0.6 and v0.7 are upgraded automatically; tests restore databases
+  created by each released tag and check that the migrated schema equals a new one.
+- **Backup before migrating:** `mcpsonar.db.schema<N>.bak` is written next to the database.
+- **No silent downgrade:** a database written by a newer mcpsonar is refused (exit 2).
+- **WAL mode** with a separate read-only connection: reads no longer wait for writes.
+  Back up with SQLite's online backup, not by copying the `.db` file alone (see
+  [Backups](docs/configuration.md#backups)).
+- **Atomic writes.** Each write runs in one transaction, one writer at a time. Before, a
+  multi-statement write (replacing a tool snapshot) could be committed halfway by another
+  task sharing the connection.
+
 ### Anomaly detection
 - **Episodes.** A run of slow checks is one episode: the first `latency_spike` is notified,
   the following ones carry `ongoing: true` (kept in the history, not notified), and the
