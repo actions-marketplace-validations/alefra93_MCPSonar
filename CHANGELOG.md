@@ -3,7 +3,7 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [0.6.0] — unreleased (date it when tagging)
+## [0.6.0] — 2026-10-21
 
 Security hardening release. Details, evidence and tests for each item:
 [docs/engineering-audit.md](docs/engineering-audit.md). Upgrade notes:
@@ -32,7 +32,7 @@ Security hardening release. Details, evidence and tests for each item:
 - Security headers (no framing, CSP, nosniff, no-referrer); 1 MiB body limit; bounded history
   queries; optional `MCPSONAR_METRICS_TOKEN` for `/metrics`; http(s)-only URLs.
 - The container runs as an unprivileged user with no capabilities and has a HEALTHCHECK.
-- `pyjwt>=2.15` (a transitive dependency with known advisories); CI runs `pip-audit`.
+- `pyjwt>=2.15` and `certifi>=2026.10.19` (transitive dependencies with known advisories, GHSA-6q48-6c7w-9gw2 for certifi); CI runs `pip-audit`.
 
 ### Fixed
 - `tools/list` pagination is followed. Only the first page used to be checked, pinned and
