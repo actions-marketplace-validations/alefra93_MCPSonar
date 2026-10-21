@@ -23,7 +23,7 @@ person reviewing the tool usually doesn't.
 
 ## How the rules are measured
 
-- **The adversarial corpus.** [`tests/corpus/detection.yaml`](../tests/corpus/detection.yaml) has ≥ 3 positive cases per rule (paraphrased from published tool-poisoning proofs of concept) and ≥ 2 negative cases (legitimate text with the same keywords). It runs in CI on every change.
+- **The adversarial corpus.** [`tests/corpus/detection.yaml`](https://github.com/alefra93/MCPSonar/blob/main/tests/corpus/detection.yaml) has ≥ 3 positive cases per rule (paraphrased from published tool-poisoning proofs of concept) and ≥ 2 negative cases (legitimate text with the same keywords). It runs in CI on every change.
   - Last measured: **95 cases, 0 misses, 0 false positives**, plus 3 documented limitations (below).
 - **Live definitions.** We also lint the tools of the public servers MCPSonar watches (`examples/popular-servers.yaml`).
   - Before the v0.8 tuning: 8 findings on 42 live tools, all false positives.
