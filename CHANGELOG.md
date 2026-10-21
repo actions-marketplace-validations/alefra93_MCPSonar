@@ -3,6 +3,32 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
+## [Unreleased] — proposed 0.8.0
+
+### Detection quality
+- New adversarial corpus (`tests/corpus/detection.yaml`), run in CI: positive and negative
+  cases for every lint rule, plus documented known limitations run as strict expected
+  failures.
+- Every rule is documented in [docs/detection-rules.md](docs/detection-rules.md) with its
+  severity, **confidence** (precision), OWASP MCP Top 10 mapping, examples and what to
+  review. The registry (`lint.RULES`) is the single source of each rule's severity.
+- Tuned against the corpus and against the tools of the 24 watched public servers: 8 false
+  positives on 42 live tools became 0, and the corpus has 0 misses and 0 false positives
+  (3 documented limitations).
+  - `prompt-injection` ignores CLI flags and parameters (`--ignore`, `override=true`).
+  - `sensitive-path`: private keys, `.env` files and MCP client configs count only when the
+    text asks to read or send them. "Add this server to your mcp.json" is setup, not an
+    attack.
+  - `exfiltration` needs data (conversation, files, keys, …) heading to the destination, so
+    "Send a POST request to https://api…" no longer matches.
+  - `coercive-instruction` needs "always / first / also": "You must provide a city name" and
+    API ordering notes no longer match.
+  - `hidden-unicode` ignores the zero-width joiner inside emoji sequences.
+  - `fake-system-tag` also catches `[SYSTEM]` / `[IMPORTANT]`.
+  - `encoded-blob` ignores long URLs.
+  - `long-description` threshold raised from 1,500 to 4,000 characters (real descriptions
+    reach ~3,300).
+
 ## [0.7.0] — 2026-10-21
 
 ### Added
