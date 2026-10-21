@@ -34,8 +34,6 @@ dependencies = [
     # Not used directly (mcp's OAuth client pulls it in): a floor so installs never resolve
     # to versions with known advisories (PYSEC-2026-4140..4183, found by pip-audit in CI).
     "pyjwt>=2.15",
-    # Not used directly (httpx's CA bundle): GHSA-6q48-6c7w-9gw2 is fixed in 2026.10.19.
-    "certifi>=2026.10.19",
 ]
 
 [project.optional-dependencies]
