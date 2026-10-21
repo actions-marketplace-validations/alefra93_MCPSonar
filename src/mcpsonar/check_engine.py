@@ -301,11 +301,21 @@ def _is_destructive(tool: Tool) -> bool:
     return bool(ann and ann.destructive_hint is True and ann.read_only_hint is not True)
 
 
+@dataclass
+class ProbeReport:
+    """What calling the configured probes produced."""
+
+    checked: int = 0
+    failed: int = 0
+    notes: list[str] = field(default_factory=list)  # failures
+    skipped: list[str] = field(default_factory=list)
+    latency_ms: dict[str, float] = field(default_factory=dict)  # per tool actually called
+
+
 async def _probe_tools(
     session: ClientSession, probes: list[ToolProbe], timeout_s: float, tools: list[Tool]
-) -> tuple[int, int, list[str], list[str]]:
+) -> ProbeReport:
     """Test-call each configured tool with its configured arguments to prove it responds.
-    Returns (tools_checked, tools_failed, failure_notes, skipped_notes).
 
     Only tools listed in ``tools_to_test`` are ever called, one at a time: never a tool
     just because it exists or its name looks harmless. A tool counts as failed if the call
@@ -317,21 +327,19 @@ async def _probe_tools(
     is a real malfunction signal rather than a "you called it wrong" artifact.
     """
     by_name = {t.name: t for t in tools}
-    checked = 0
-    failed = 0
-    notes: list[str] = []
-    skipped: list[str] = []
+    report = ProbeReport()
     for probe in probes:
         tool = by_name.get(probe.name)
         if tool is not None and _is_destructive(tool) and not probe.allow_destructive:
-            skipped.append(f"{probe.name} (annotated destructive; set allow_destructive "
-                           "to probe it anyway)")
+            report.skipped.append(f"{probe.name} (annotated destructive; set "
+                                  "allow_destructive to probe it anyway)")
             continue
-        checked += 1
+        report.checked += 1
         if tool is None:
-            failed += 1
-            notes.append(f"{probe.name}: not listed by the server (not called)")
+            report.failed += 1
+            report.notes.append(f"{probe.name}: not listed by the server (not called)")
             continue
+        start = perf_counter()
         try:
             result = await session.call_tool(
                 probe.name,
@@ -339,13 +347,14 @@ async def _probe_tools(
                 read_timeout_seconds=probe.timeout_seconds or timeout_s,
             )
             if getattr(result, "is_error", False):
-                failed += 1
-                notes.append(f"{probe.name}: tool returned an error result")
+                report.failed += 1
+                report.notes.append(f"{probe.name}: tool returned an error result")
         except Exception as exc:  # unknown tool, bad args, transport error, timeout
             raise_if_cancelling(exc)
-            failed += 1
-            notes.append(f"{probe.name}: {type(exc).__name__}")
-    return checked, failed, notes, skipped
+            report.failed += 1
+            report.notes.append(f"{probe.name}: {type(exc).__name__}")
+        report.latency_ms[probe.name] = round((perf_counter() - start) * 1000.0, 1)
+    return report
 
 
 def _classify(
@@ -543,14 +552,16 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
             latency_ms = handshake.latency_ms
             spec_version = handshake.protocol_version or None
             pagination_issue: str | None = None
+            t_discovery = perf_counter()
             try:
                 tools: list[Tool] = await list_all_tools(session)
             except PaginationError as exc:
                 tools, pagination_issue = [], str(exc)
+            discovery_ms = (perf_counter() - t_discovery) * 1000.0
 
-            tools_checked, tools_failed, tool_notes, skipped = await _probe_tools(
-                session, cfg.tools_to_test, timeout_s, tools
-            )
+            t_probes = perf_counter()
+            probes = await _probe_tools(session, cfg.tools_to_test, timeout_s, tools)
+            probes_ms = (perf_counter() - t_probes) * 1000.0
 
             # Version-aware validation: common rules always, version rules only if known.
             issues = run_minimal_common_validation(handshake, tools)
@@ -564,20 +575,27 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
                 issues.append(pagination_issue)
 
             status, detail = _classify(
-                latency_ms, thresholds, tools_checked, tools_failed, tool_notes, issues,
-                skipped,
+                latency_ms, thresholds, probes.checked, probes.failed, probes.notes, issues,
+                probes.skipped,
             )
 
             event = CheckEvent(
                 server_id=server_id,
                 status=status,
                 latency_ms=latency_ms,
-                tools_checked=tools_checked,
-                tools_failed=tools_failed,
+                tools_checked=probes.checked,
+                tools_failed=probes.failed,
                 tools_available=len(tools),
                 spec_version=spec_version,
                 spec_version_supported=spec_version_supported,
                 detail=detail,
+                timings_ms={
+                    "handshake": round(latency_ms, 1),
+                    "discovery": round(discovery_ms, 1),
+                    "probes": round(probes_ms, 1),
+                    "total": round((perf_counter() - t0) * 1000.0, 1),
+                },
+                tool_latency_ms=probes.latency_ms,
             )
             # An incomplete listing must not be diffed: every unseen tool would look removed.
             definitions = None if pagination_issue else [normalize_tool(t) for t in tools]

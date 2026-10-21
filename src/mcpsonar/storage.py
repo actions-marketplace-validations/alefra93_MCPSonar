@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS checks (
     tool_risks             INTEGER NOT NULL DEFAULT 0,
     anomalies_json         TEXT,
     latency_baseline_ms    REAL,
-    latency_score          REAL
+    latency_score          REAL,
+    timings_json           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_checks_server_time ON checks (server_id, checked_at);
 CREATE TABLE IF NOT EXISTS tool_baselines (
@@ -140,6 +141,7 @@ async def _migrate(conn: aiosqlite.Connection) -> None:
         "anomalies_json": "TEXT",
         "latency_baseline_ms": "REAL",
         "latency_score": "REAL",
+        "timings_json": "TEXT",
     }
     for name, decl in added.items():
         if name not in columns:
@@ -229,7 +231,8 @@ class Storage:
             "INSERT INTO checks (server_id, status, checked_at, latency_ms, tools_checked, "
             "tools_failed, tools_available, spec_version, spec_version_supported, detail, "
             "tool_changes, tool_risks, anomalies_json, latency_baseline_ms, latency_score, "
-            "auth_required) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "auth_required, timings_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 event.server_id,
                 event.status.value,
@@ -249,6 +252,9 @@ class Storage:
                 event.latency_baseline_ms,
                 event.latency_score,
                 int(event.auth_required),
+                json.dumps({"phases": event.timings_ms, "tools": event.tool_latency_ms})
+                if event.timings_ms is not None or event.tool_latency_ms
+                else None,
             ),
         )
         await self._conn.commit()
@@ -274,7 +280,15 @@ class Storage:
             latency_baseline_ms=row["latency_baseline_ms"],
             latency_score=row["latency_score"],
             auth_required=bool(row["auth_required"]),
+            **Storage._timings(row["timings_json"]),
         )
+
+    @staticmethod
+    def _timings(raw: str | None) -> dict:
+        if not raw:
+            return {}
+        data = json.loads(raw)
+        return {"timings_ms": data.get("phases"), "tool_latency_ms": data.get("tools") or {}}
 
     async def get_history(
         self, server_id: str, since: datetime | None = None, limit: int = 500

@@ -116,6 +116,7 @@ async def test_history_after_checks(instance, capsys, monkeypatch):
     assert code == 0 and summary["checks"] == 2 and summary["uptime_pct"] == 0
     assert summary["incidents"][0]["worst"] == "down"
     assert summary["incidents"][0]["recovered"] is None
+    assert summary["phases_median_ms"] == {}  # never reached: no phases measured
     code, out, _ = await cli(capsys, monkeypatch, instance["read"], "history", "remote-api")
     assert "ongoing" in out and "uptime 0.0%" in out
 
@@ -287,3 +288,15 @@ async def test_remove_with_yes_and_read_token_refused(instance, capsys, monkeypa
     code, out, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "remove", "old",
                              "--yes", "--json")
     assert code == 0 and json.loads(out)["kind"] == "server.removed"
+
+
+async def test_history_reports_phase_and_tool_medians(instance, capsys, monkeypatch):
+    for _ in range(2):
+        await cli(capsys, monkeypatch, instance["write"], "check", "calculator",
+                  "--fail-on", "never")
+    code, out, _ = await cli(capsys, monkeypatch, instance["read"], "history", "calculator",
+                             "--json")
+    phases = json.loads(out)["summary"]["phases_median_ms"]
+    assert code == 0 and {"handshake", "discovery", "probes", "total"} <= set(phases)
+    code, out, _ = await cli(capsys, monkeypatch, instance["read"], "history", "calculator")
+    assert "phases   handshake" in out

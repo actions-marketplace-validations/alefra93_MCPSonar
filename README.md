@@ -427,7 +427,9 @@ servers:
 - **Prometheus** — `GET /metrics`: `mcpsonar_up`, `mcpsonar_status_code`, `mcpsonar_latency_ms`,
   `mcpsonar_latency_baseline_ms`, `mcpsonar_latency_anomaly_score`, `mcpsonar_anomalies`,
   `mcpsonar_tool_changes_pending`, `mcpsonar_tool_risks`, `mcpsonar_tools_failed`,
-  `mcpsonar_spec_version_supported`, …
+  `mcpsonar_spec_version_supported`, and where the time goes:
+  `mcpsonar_check_duration_ms`, `mcpsonar_phase_latency_ms{phase="handshake|discovery|probes"}`,
+  `mcpsonar_tool_latency_ms{tool="…"}` (each probed tool), …
 
 ### Status rules
 

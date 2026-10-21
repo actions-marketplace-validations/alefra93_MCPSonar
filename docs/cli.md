@@ -36,7 +36,7 @@ built yet).
 | `servers add\|edit\|pause\|resume\|remove` | IMPLEMENTED | remote | Change servers through the API (write token). `add --endpoint URL\|--stdio CMD`, `--header-from-env K=VAR` keeps secrets out of shell history; `edit` changes only what is given; `remove` asks on a terminal, needs `--yes` otherwise. |
 | `check NAME\|--all` | IMPLEMENTED | remote | Check now, run by the instance (recorded like a scheduled check). Needs a *write* token. `--fail-on` (default down). |
 | `diff NAME [--all]` | IMPLEMENTED | remote | Changes vs the trusted definitions, each marked pending, SUSPICIOUS (new definition has findings) or APPROVED. Exit 1 while unreviewed. Never approves. |
-| `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
+| `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, median time per phase (handshake, discovery, probes, total) and per probed tool, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
 | `report [TARGET\|--config FILE] --format markdown\|json\|sarif` | IMPLEMENTED | local | Security report of one server or every server in a config: findings with rule documentation, lockfile drift (`--lock`), unreachable servers. SARIF 2.1.0 validated against the official schema. `-o FILE`, `--fail-on`. |
 | shell completion | PLANNED (v0.8) | — | Optional, through `argcomplete` (an extra, not a core dependency). |
 

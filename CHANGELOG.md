@@ -5,6 +5,18 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
 ## [Unreleased] — proposed 0.8.0
 
+### Observability
+- **Where the time goes.** Every check now records:
+  - `timings_ms`: `handshake`, `discovery` (every `tools/list` page), `probes` and `total`
+    (connection set-up included);
+  - `tool_latency_ms`: the latency of each probed tool call.
+- **Unchanged meaning:** `latency_ms` is still the handshake, so baselines, anomaly detection
+  and dashboards behave as before. The new fields are additive in the API, webhooks and the
+  database, through an automatic migration.
+- **Prometheus:** new `mcpsonar_check_duration_ms`, `mcpsonar_phase_latency_ms{phase}` and
+  `mcpsonar_tool_latency_ms{tool}`. No existing metric was renamed.
+- **CLI:** `mcpsonar history` shows the median of each phase and of each probed tool.
+
 ### Reports and SARIF
 - `mcpsonar report` for one server or every server in `--config`, in **Markdown** (for an
   issue or PR comment), **JSON** or **SARIF 2.1.0**. It includes findings with each rule's

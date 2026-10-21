@@ -136,6 +136,18 @@ class CheckEvent(BaseModel):
         description="Robust z-score of this check's latency vs. the baseline "
         "((latency - median) / scaled MAD). None until enough history.",
     )
+    timings_ms: dict[str, float] | None = Field(
+        default=None,
+        description="How long each phase of the check took, in ms: 'handshake' (the "
+        "negotiation RPC that succeeded — the same value as latency_ms), 'discovery' (every "
+        "tools/list page), 'probes' (all configured tool calls) and 'total' (the whole check, "
+        "connection set-up included). None when the server was not reached.",
+    )
+    tool_latency_ms: dict[str, float] = Field(
+        default_factory=dict,
+        description="Latency of each probed tool call, by tool name (only tools that were "
+        "actually called).",
+    )
 
 
 # --------------------------------------------------------------------------- #
