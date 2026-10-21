@@ -29,7 +29,7 @@ built yet).
 | `tools TARGET` | IMPLEMENTED | local | Every tool (all pages) with risk indicators; `--detail` for schemas. |
 | `risks TARGET` | IMPLEMENTED | local | Findings explained: rule, severity, evidence, what to review. |
 | `config validate\|show\|export FILE` | IMPLEMENTED | local | Same validation and redaction as the monitor. |
-| `doctor` | IMPLEMENTED | local (+ probes the instance) | Read-only diagnosis of installation, database, TLS, settings. |
+| `doctor` | IMPLEMENTED | local (+ probes the instance) | Read-only diagnosis of installation, database, TLS, settings; with `MCPSONAR_TOKEN`, whether the token works (scope, expiry), the instance version, and a refusal to send the token over plain HTTP. |
 | `version` / `--version` | IMPLEMENTED | local | Versions of mcpsonar, the MCP SDK and Python. |
 | `status` | IMPLEMENTED | remote | Health, latency, last check, unreviewed changes, findings, anomalies; `--fail-on down\|degraded` (default never). |
 | `servers list\|show NAME` | IMPLEMENTED | remote | Monitored servers; `show` prints the config with credentials masked by the instance. |
@@ -38,7 +38,7 @@ built yet).
 | `diff NAME [--all]` | IMPLEMENTED | remote | Changes vs the trusted definitions, each marked pending, SUSPICIOUS (new definition has findings) or APPROVED. Exit 1 while unreviewed. Never approves. |
 | `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, median time per phase (handshake, discovery, probes, total) and per probed tool, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
 | `report [TARGET\|--config FILE] --format markdown\|json\|sarif` | IMPLEMENTED | local | Security report of one server or every server in a config: findings with rule documentation, lockfile drift (`--lock`), unreachable servers. SARIF 2.1.0 validated against the official schema. `-o FILE`, `--fail-on`. |
-| shell completion | PLANNED (v0.8) | — | Optional, through `argcomplete` (an extra, not a core dependency). |
+| `completion bash\|zsh\|fish\|powershell` | IMPLEMENTED | local | Prints a completion script generated from this version's commands and options (no extra dependency). See [Shell completion](#shell-completion). |
 
 ### Local and remote mode
 
@@ -166,7 +166,7 @@ mcpsonar doctor
   OK    Database           …\ui.db: 1 server(s), admin created
   OK    npx                C:\Program Files\nodejs\npx.CMD
   OK    TLS                CA bundle loaded (118 certificates)
-  SKIP  Local instance     nothing listening at http://127.0.0.1:18999 (fine if you only use scan/tools/risks)
+  SKIP  Instance           nothing listening at http://127.0.0.1:18999 (fine if you only use scan/tools/risks)
   OK    Security settings  no risky overrides
 
   8 ok · 0 warning(s) · 0 failure(s)
@@ -249,11 +249,35 @@ poisoned one) is exercised end-to-end by
 ## Installation status
 
 - **From source:** `pip install -e .` works today.
-- **Wheel:** checked on Windows (Python 3.13). A wheel built from this branch installs into a
-  clean virtualenv and provides the `mcpsonar` command; `--version`, `doctor` and `config`
-  ran from it.
+- **Wheel and sdist:** built and checked on every push by the CI `package` job: metadata,
+  file list, README links (`scripts/check_package.py`), `twine check --strict`, then the wheel
+  is installed into a clean virtualenv and `--version`, `doctor` and `tools --stdio` run
+  from it. Each GitHub Release (from v0.8.0) attaches the wheel and the sdist.
+- **`uvx`:** verified, from the built wheel, on Windows (Python 3.13) and in CI (Linux):
+  `uvx --from <wheel or git URL> mcpsonar --version`.
 - **`pip install mcpsonar` from PyPI:** not published. Publishing needs the maintainer's
   explicit approval (see the roadmap).
-- **`uvx mcpsonar`:** not verified yet, because `uv` was not available where this was tested.
-  The package uses a standard `console_scripts` entry point, which `uvx` supports. It still
-  needs a real run before the README can claim it.
+
+## Shell completion
+
+`mcpsonar completion SHELL` prints a script generated from the installed version, so it
+always matches its commands, sub-commands, options and fixed choices (`--format json`).
+Everything else (URLs, files) falls back to the shell's file completion. Install it once,
+and again after an upgrade that adds commands:
+
+```bash
+# bash
+mcpsonar completion bash > ~/.local/share/bash-completion/completions/mcpsonar
+# zsh (uses bashcompinit): add to ~/.zshrc
+source <(mcpsonar completion zsh)
+# fish
+mcpsonar completion fish > ~/.config/fish/completions/mcpsonar.fish
+```
+
+```powershell
+# PowerShell: add to $PROFILE
+mcpsonar completion powershell | Out-String | Invoke-Expression
+```
+
+The bash and PowerShell scripts are exercised by the test suite; CI also parses the bash,
+zsh and fish scripts with those shells.

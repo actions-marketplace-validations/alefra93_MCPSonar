@@ -11,10 +11,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import config_cmd, doctor, inspect_cmd, monitor_cmd, report_cmd, servers_cmd, version
+from . import (
+    completion,
+    config_cmd,
+    doctor,
+    inspect_cmd,
+    monitor_cmd,
+    report_cmd,
+    servers_cmd,
+    version,
+)
 
 
 def register_all(subparsers: Any) -> None:
     for module in (monitor_cmd, servers_cmd, inspect_cmd, report_cmd, config_cmd, doctor,
+                   completion,
                    version):
         module.register(subparsers)

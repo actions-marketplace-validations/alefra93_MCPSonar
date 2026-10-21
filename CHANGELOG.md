@@ -24,6 +24,19 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     probes; `drift: off` disables it per probe.
   - The status is not affected. See [Response drift](docs/configuration.md#response-drift).
 
+### Packaging and developer experience
+- **`mcpsonar completion bash|zsh|fish|powershell`**, generated from the CLI's own parser,
+  so it always matches the installed version; no new dependency.
+- **`doctor` checks the remote setup:** whether `MCPSONAR_TOKEN` is accepted (scope,
+  expiry), the instance version against the CLI's, and it refuses to send the token over
+  plain HTTP to a non-local instance. `/api/auth/status` reports the version only to an
+  authenticated caller, and the validity of a bearer token sent with it.
+- **Checked packages.** A CI `package` job builds the wheel and sdist, checks their metadata
+  and contents (`scripts/check_package.py`, `twine check --strict`), installs the wheel into
+  a clean environment, runs it, and runs it through `uvx`. Releases attach both files.
+- **Metadata:** Documentation, Changelog and Issues URLs; README links are absolute, so they
+  work outside GitHub too; the sdist no longer ships the screenshots (7.3 MB to 241 KB).
+
 ### Secret references
 - Header and stdio `env` values accept `${env:NAME}` and `${file:PATH}`, resolved at every
   check and never stored, exported or shown resolved. `${file:...}` is re-read on every

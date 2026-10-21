@@ -60,6 +60,33 @@ jobs:
       # (a real finding fails both attempts, so it still blocks the build).
       - run: pip-audit --skip-editable --timeout 60 || (sleep 20 && pip-audit --skip-editable --timeout 60)
 
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install build==1.6.1 twine==7.0.0 uv==0.13.4
+      - run: python -m build
+      - run: twine check --strict dist/*
+      - run: python scripts/check_package.py dist
+      - name: Install the wheel in a clean environment and use it
+        run: |
+          python -m venv /tmp/clean
+          /tmp/clean/bin/pip install dist/*.whl
+          /tmp/clean/bin/mcpsonar --version
+          /tmp/clean/bin/mcpsonar doctor --db /tmp/none.db --url http://127.0.0.1:1
+          /tmp/clean/bin/mcpsonar tools --stdio "/tmp/clean/bin/python tests/fixtures/scripted_server.py pages"
+      - name: uvx runs it straight from the wheel
+        run: UV_PYTHON_DOWNLOADS=never uvx --python "$(which python)" --from dist/*.whl mcpsonar --version
+      - name: Completion scripts parse in bash, zsh and fish
+        run: |
+          sudo apt-get install -y -qq zsh fish
+          for sh in bash zsh; do /tmp/clean/bin/mcpsonar completion $sh > /tmp/c.$sh; $sh -n /tmp/c.$sh; done
+          /tmp/clean/bin/mcpsonar completion fish > /tmp/c.fish
+          fish --no-execute /tmp/c.fish
+
   docker:
     runs-on: ubuntu-latest
     steps:
