@@ -88,6 +88,13 @@ CREATE TABLE IF NOT EXISTS tool_changes (
     acknowledged INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tool_changes_server ON tool_changes (server_id, acknowledged);
+CREATE TABLE IF NOT EXISTS probe_shapes (
+    server_id  TEXT NOT NULL,
+    tool       TEXT NOT NULL,
+    shape_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (server_id, tool)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -220,7 +227,8 @@ class Storage:
 
     async def delete_server(self, server_id: str) -> bool:
         cur = await self._conn.execute("DELETE FROM servers WHERE id = ?", (server_id,))
-        for table in ("checks", "tool_baselines", "tool_snapshots", "tool_changes"):
+        for table in ("checks", "tool_baselines", "tool_snapshots", "tool_changes",
+                      "probe_shapes"):
             await self._conn.execute(f"DELETE FROM {table} WHERE server_id = ?", (server_id,))
         await self._conn.commit()
         return cur.rowcount > 0
@@ -397,6 +405,23 @@ class Storage:
             }
             for r in await cur.fetchall()
         ]
+
+    # ---- response drift ------------------------------------------------------ #
+    async def get_probe_shapes(self, server_id: str) -> dict[str, dict]:
+        """Last-seen response shape per probed tool (shapes only: no response content)."""
+        cur = await self._conn.execute(
+            "SELECT tool, shape_json FROM probe_shapes WHERE server_id = ?", (server_id,)
+        )
+        return {r["tool"]: json.loads(r["shape_json"]) for r in await cur.fetchall()}
+
+    async def save_probe_shape(self, server_id: str, tool: str, shape: dict) -> None:
+        await self._conn.execute(
+            "INSERT INTO probe_shapes (server_id, tool, shape_json, updated_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(server_id, tool) DO UPDATE SET "
+            "shape_json = excluded.shape_json, updated_at = excluded.updated_at",
+            (server_id, tool, json.dumps(shape, sort_keys=True), datetime.now(UTC).isoformat()),
+        )
+        await self._conn.commit()
 
     async def count_pending_tool_changes(self, server_id: str) -> int:
         cur = await self._conn.execute(

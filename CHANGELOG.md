@@ -16,6 +16,13 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 - **Prometheus:** new `mcpsonar_check_duration_ms`, `mcpsonar_phase_latency_ms{phase}` and
   `mcpsonar_tool_latency_ms{tool}`. No existing metric was renamed.
 - **CLI:** `mcpsonar history` shows the median of each phase and of each probed tool.
+- **Response drift.** For each probed tool, MCPSonar remembers the *shape* of the answer
+  (error or not, content types, structure of `structuredContent`, order of magnitude of the
+  size) and reports a `response_drift` anomaly once when it changes.
+  - Response content is never stored.
+  - Opt-in `drift: hash` (with `drift_ignore`) also catches value changes on deterministic
+    probes; `drift: off` disables it per probe.
+  - The status is not affected. See [Response drift](docs/configuration.md#response-drift).
 
 ### Reports and SARIF
 - `mcpsonar report` for one server or every server in `--config`, in **Markdown** (for an

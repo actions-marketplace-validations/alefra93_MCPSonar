@@ -42,6 +42,7 @@ from mcp_types.version import (
 )
 from pydantic import ValidationError
 
+from .drift import shape_of
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
 from .netpolicy import policy_transport
 from .redact import scrub, secret_values
@@ -310,6 +311,7 @@ class ProbeReport:
     notes: list[str] = field(default_factory=list)  # failures
     skipped: list[str] = field(default_factory=list)
     latency_ms: dict[str, float] = field(default_factory=dict)  # per tool actually called
+    shapes: dict[str, dict[str, Any]] = field(default_factory=dict)  # response drift input
 
 
 async def _probe_tools(
@@ -349,6 +351,8 @@ async def _probe_tools(
             if getattr(result, "is_error", False):
                 report.failed += 1
                 report.notes.append(f"{probe.name}: tool returned an error result")
+            if probe.drift != "off":
+                report.shapes[probe.name] = shape_of(result, probe.drift, probe.drift_ignore)
         except Exception as exc:  # unknown tool, bad args, transport error, timeout
             raise_if_cancelling(exc)
             report.failed += 1
@@ -491,6 +495,8 @@ class CheckOutcome:
 
     event: CheckEvent
     tools: list[dict[str, Any]] | None = None
+    #: Response shapes of the probes that answered (see :mod:`mcpsonar.drift`); no content.
+    probe_shapes: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 async def check_server(server_id: str, cfg: ServerConfig) -> CheckEvent:
@@ -599,7 +605,7 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
             )
             # An incomplete listing must not be diffed: every unseen tool would look removed.
             definitions = None if pagination_issue else [normalize_tool(t) for t in tools]
-            return CheckOutcome(event, definitions)
+            return CheckOutcome(event, definitions, probes.shapes)
 
     except Exception as exc:  # connect failure, handshake failure, timeout, etc.
         raise_if_cancelling(exc)

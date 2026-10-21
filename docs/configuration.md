@@ -70,6 +70,8 @@ servers:
         arguments: { query: "healthcheck" }
         timeout_seconds: 5              # default: latency_down_ms + 5 s
         allow_destructive: false        # default; see "Tool probes"
+        drift: shape                    # shape (default) | hash | off; see "Response drift"
+        drift_ignore: []                # fields left out of the hash (timestamps, ids, ...)
     thresholds: { latency_degraded_ms: 2000, latency_down_ms: 10000 }
     on_tool_change: "degrade"           # degrade | alert | ignore
     anomaly: { enabled: true, sensitivity: 4.0, degrade: false }
@@ -89,6 +91,25 @@ servers:
   servers, not a guarantee. Only probe tools that are safe to call repeatedly.
 - Each check has an overall time budget (`3 × (latency_down_ms + 5 s)` plus each probe's
   timeout); a server that hangs ends as `down` and the next check runs on schedule.
+
+### Response drift
+
+A probed tool can keep answering while answering *differently*: a field disappears, a number
+becomes a string, it starts returning errors. For each probe, MCPSonar remembers the **shape**
+of the last answer and reports a `response_drift` anomaly when it changes.
+
+- **Only probes are watched**, and only their shape is stored: whether the result was an
+  error, the content types, the key names and value types of `structuredContent`, and the
+  order of magnitude of the size. **Response content is never stored.**
+- A size change counts only at **8× or more**. Smaller changes leave the reference as it is,
+  so slow growth still adds up to a report.
+- `drift: hash` also compares the content, through a SHA-256 digest (the digest is stored, the
+  content is not). Use it only for deterministic probes, and list the fields that change on
+  every call in `drift_ignore` (matched by name at any depth of `structuredContent`).
+- `drift: off` turns it off for that probe.
+- A drift is reported **once**, then the new shape becomes the reference. It is an
+  observability signal: it does not change the server's status and needs no review, unlike
+  tool-definition changes.
 
 ### stdio servers: the trust boundary
 

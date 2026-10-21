@@ -53,7 +53,7 @@ class Anomaly(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["latency_spike", "latency_shift", "flapping", "tool_change"]
+    kind: Literal["latency_spike", "latency_shift", "flapping", "tool_change", "response_drift"]
     detail: str
     score: float | None = Field(
         default=None, description="Strength of the signal (z-score / t-statistic), if any."
@@ -256,6 +256,18 @@ class ToolProbe(BaseModel):
         description="Probe the tool even if its annotations declare it destructive. "
         "Annotations are the server's own claims, not guarantees: only probe tools that are "
         "safe to call repeatedly.",
+    )
+    drift: Literal["shape", "hash", "off"] = Field(
+        default="shape",
+        description="Response drift detection for this probe. 'shape' (default) compares "
+        "error/no-error, content types, the structure of structured content and the order "
+        "of magnitude of the size — never values. 'hash' also compares the content, minus "
+        "drift_ignore fields: for deterministic probes. 'off' disables it.",
+    )
+    drift_ignore: list[str] = Field(
+        default_factory=list,
+        description="Field names left out of the 'hash' comparison wherever they appear "
+        "(timestamps, request ids, ...).",
     )
 
 

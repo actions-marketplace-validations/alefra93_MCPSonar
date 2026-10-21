@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from . import anomaly as ad
 from .check_engine import run_check
+from .drift import compare
 from .lint import lint_tools, risk_count
 from .models import Anomaly, CheckEvent, CheckStatus, ServerConfig
 from .storage import Storage
@@ -35,6 +36,8 @@ async def process_check(storage: Storage, server_id: str, cfg: ServerConfig) -> 
     if cfg.on_tool_change != "ignore":
         # Pending changes stay visible even while the server is down.
         event.tool_changes = await storage.count_pending_tool_changes(server_id)
+    if outcome.probe_shapes:
+        found += await _track_response_drift(storage, server_id, outcome.probe_shapes)
 
     if cfg.anomaly.enabled:
         found += await _detect_anomalies(storage, event, cfg)
@@ -62,6 +65,31 @@ async def _track_tool_changes(
     await storage.add_tool_changes(server_id, changes)
     await storage.save_tool_snapshot(server_id, current)
     return [Anomaly(kind="tool_change", detail="; ".join(c.summary() for c in changes))]
+
+
+async def _track_response_drift(
+    storage: Storage, server_id: str, shapes: dict[str, dict]
+) -> list[Anomaly]:
+    """Compare each probe's response shape with the last one seen. A change is reported
+    once and becomes the new reference: drift is an observability signal, not something to
+    approve (unlike tool-definition changes)."""
+    previous = await storage.get_probe_shapes(server_id)
+    found: list[Anomaly] = []
+    for tool, shape in shapes.items():
+        before = previous.get(tool)
+        if before == shape:
+            continue
+        if before is None:
+            await storage.save_probe_shape(server_id, tool, shape)  # first answer: reference
+            continue
+        reasons = compare(before, shape)
+        if reasons:
+            found.append(Anomaly(kind="response_drift",
+                                 detail=f"{tool}: " + "; ".join(reasons)))
+            await storage.save_probe_shape(server_id, tool, shape)
+        # Below the thresholds the reference stays put, so slow growth (2x, then 2x
+        # again ...) still adds up to a reported drift instead of moving the goalposts.
+    return found
 
 
 async def _detect_anomalies(

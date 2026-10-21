@@ -2,7 +2,7 @@
 
 Fires for the statuses listed in ``on`` (default down + degraded) and, when ``on_anomaly`` is
 set (the default), for any check that detected something new — a latency anomaly, flapping,
-or a tool-definition change — whatever its status. Retries transient
+a tool-definition change or a response drift — whatever its status. Retries transient
 failures up to ``max_retries`` attempts with exponential backoff, then raises so the caller
 can log the final failure.
 """
