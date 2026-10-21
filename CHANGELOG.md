@@ -5,6 +5,23 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
 ## [Unreleased] — proposed 0.8.0
 
+### Reports and SARIF
+- `mcpsonar report` for one server or every server in `--config`, in **Markdown** (for an
+  issue or PR comment), **JSON** or **SARIF 2.1.0**. It includes findings with each rule's
+  documentation, lockfile drift (`--lock`, read-only) and unreachable servers. Exit 0/1/2
+  like `scan`.
+- `mcpsonar scan --sarif FILE` and a `sarif` input on the GitHub Action. Upload the file with
+  `github/codeql-action/upload-sarif` and findings become **code scanning alerts**, pointing
+  at the tool's line in the lockfile.
+- What the SARIF carries:
+  - every rule, with its help text, `security-severity`, `precision` (the rule's confidence)
+    and OWASP MCP Top 10 tags;
+  - lockfile drift as the rule `tool-definition-changed`;
+  - stable `partialFingerprints` so alerts follow the same issue across runs.
+  - Checked against the official SARIF 2.1.0 schema.
+- `risks --json` also carries each finding's confidence and OWASP categories (same function
+  as the reports).
+
 ### Detection quality
 - New adversarial corpus (`tests/corpus/detection.yaml`), run in CI: positive and negative
   cases for every lint rule, plus documented known limitations run as strict expected

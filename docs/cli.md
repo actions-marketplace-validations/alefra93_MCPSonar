@@ -37,7 +37,7 @@ built yet).
 | `check NAME\|--all` | IMPLEMENTED | remote | Check now, run by the instance (recorded like a scheduled check). Needs a *write* token. `--fail-on` (default down). |
 | `diff NAME [--all]` | IMPLEMENTED | remote | Changes vs the trusted definitions, each marked pending, SUSPICIOUS (new definition has findings) or APPROVED. Exit 1 while unreviewed. Never approves. |
 | `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
-| `report --format json\|markdown\|sarif` | PLANNED (v0.8) | both | Operational and security report; SARIF 2.1.0 with stable rule IDs. |
+| `report [TARGET\|--config FILE] --format markdown\|json\|sarif` | IMPLEMENTED | local | Security report of one server or every server in a config: findings with rule documentation, lockfile drift (`--lock`), unreachable servers. SARIF 2.1.0 validated against the official schema. `-o FILE`, `--fail-on`. |
 | shell completion | PLANNED (v0.8) | — | Optional, through `argcomplete` (an extra, not a core dependency). |
 
 ### Local and remote mode

@@ -255,6 +255,9 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--format", choices=["text", "json"], default="text",
                       help="Output format (--json is the same as --format json).")
     scan.add_argument("--timeout", type=float, default=20.0, help="Seconds (default 20).")
+    scan.add_argument("--sarif", metavar="FILE",
+                      help="Also write the results as SARIF 2.1.0 (GitHub code scanning). "
+                      "Results point at lines of --lock when given.")
 
     demo = sub.add_parser(
         "demo",

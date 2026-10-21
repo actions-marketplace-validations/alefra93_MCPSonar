@@ -169,6 +169,41 @@ updates:
     schedule: { interval: weekly }
 ```
 
+### Findings in GitHub code scanning (SARIF)
+
+`mcpsonar scan --sarif FILE` and `mcpsonar report --format sarif` write SARIF 2.1.0. Upload it
+and every finding, and every tool that changed since the lockfile, becomes an alert in the
+repository's **Security → Code scanning** tab, pointing at the tool's line in the lockfile:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write   # upload-sarif needs it
+jobs:
+  mcp-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: alefra93/MCPSonar@v0.8.0
+        with:
+          target: https://mcp.example.com/mcp
+          lock: mcp-tools.lock.json
+          sarif: mcpsonar.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()   # upload even when the scan fails the job
+        with:
+          sarif_file: mcpsonar.sarif
+```
+
+For people rather than dashboards, `mcpsonar report` writes the same results as Markdown,
+ready for an issue or a PR comment, for one server or every server in a config file:
+
+```bash
+mcpsonar report --config servers.yaml -o mcp-report.md
+```
+
+What each rule looks for, with examples and limits: [docs/detection-rules.md](docs/detection-rules.md).
+
 ## How it works
 
 ```mermaid
