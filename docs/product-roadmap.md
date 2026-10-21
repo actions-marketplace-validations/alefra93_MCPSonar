@@ -11,7 +11,7 @@ Effort is in focused engineer-days (one maintainer), and is approximate.
 
 ---
 
-## v0.6.0 — Security hardening *(implemented on `feat/mcpsonar-web-app`, not released)*
+## v0.6.0 — Security hardening *(released 2026-10-21)*
 
 **Features** (details in [engineering-audit.md](engineering-audit.md)):
 - **Browser-facing hardening:**
@@ -37,12 +37,13 @@ Effort is in focused engineer-days (one maintainer), and is approximate.
   - non-root container with a HEALTHCHECK;
   - CI on Windows and macOS, `pip-audit`, a Docker smoke job, Dependabot.
 
-**Remaining before tagging:**
-- **Version and changelog:**
-  - bump `pyproject` and the compose image tags to `0.6.0`;
-  - date the changelog entry.
-- **GitHub settings:** turn on private vulnerability reporting (referenced by `SECURITY.md`).
-- **Real-environment check:** run the 24/7 watch deployment on the new image for 48 h; check for false *down* states caused by the new timeouts.
+**How it was released (2026-10-21):**
+- **CI:** PR #3 was green on all 7 checks (Linux 3.11–3.13, Windows, macOS, pip-audit, Docker).
+- **GitHub settings:** private vulnerability reporting enabled and repository topics set.
+- **Real-environment check:** the 24/7 watch ran overnight on the 0.6.0 image (13 h 40 min,
+  3,934 checks, 99.5% up). Every *down* was a remote timeout, a dropped connection or an HTTP 502.
+  Nothing was blocked by the new outbound policy, and no server failed repeatedly.
+- **Release:** merged and tagged `v0.6.0`; `release.yml` published the GitHub Release.
 
 **Acceptance criteria:**
 - All tests pass on 3.11–3.13, Linux, Windows and macOS.
@@ -79,14 +80,14 @@ Tools view and `mcpsonar risks` must report the same findings). See [cli.md](cli
 ## v0.7.0 — CLI foundation and protocol currency
 
 **Features:**
-- **Shared application layer.** *IMPLEMENTED on `feat/cli-foundation`:*
+- **Shared application layer.** *IMPLEMENTED (v0.7.0):*
   - `services.inspect_server` is used by the dashboard, `scan` and the CLI;
   - the output layer and exit-code contract (`output.py`);
   - a rule registry (`lint.RULES`).
-- **Local-mode commands.** *IMPLEMENTED and tested on `feat/cli-foundation`:*
+- **Local-mode commands.** *IMPLEMENTED and tested (v0.7.0):*
   - `tools`, `risks`, `config validate|show|export`, `doctor`, `version`;
   - `--format json` everywhere, `NO_COLOR`, stdout/stderr separation.
-- **Remote mode.** *IMPLEMENTED and tested on `feat/cli-foundation`:*
+- **Remote mode.** *IMPLEMENTED and tested (v0.7.0):*
   - *API tokens:* created in the dashboard, stored hashed, scoped *read* or *write*,
     expiring and revocable. Used as `Authorization: Bearer` by the CLI, without touching
     the v0.6 CSRF and session model.
@@ -103,7 +104,7 @@ Tools view and `mcpsonar risks` must report the same findings). See [cli.md](cli
 - **Service extraction:** move the remaining shared operations from `api.py` into services
   (server CRUD with secret restore, tool-change listing and approval, history and insights).
   The API and the CLI then call the same functions.
-- **MCP protocol currency.** *IMPLEMENTED, TESTED and VERIFIED on `feat/mcp-sdk-2`:*
+- **MCP protocol currency.** *IMPLEMENTED, TESTED and VERIFIED (v0.7.0):*
   - ADR 0001 implemented: mcp 2.x / spec 2026-07-28, with 2025-era servers still supported,
     behind `check_engine` and `services`;
   - fingerprints stable: 42/42 live tools identical, golden-value tests;

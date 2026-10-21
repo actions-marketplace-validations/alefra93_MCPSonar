@@ -3,7 +3,7 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [Unreleased] — proposed 0.7.0 (branch `feat/cli-foundation`, on top of 0.6.0)
+## [0.7.0] — unreleased (date it when tagging)
 
 ### Added
 - CLI commands `tools`, `risks`, `config validate|show|export`, `doctor` and `version`

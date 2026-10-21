@@ -197,7 +197,7 @@ Commit `fix(security): outbound connection policy…`
 
 ## C. Theoretical threats, accepted risks and limitations
 
-**T-01 · High (future compatibility) · IMPLEMENTED, TESTED, VERIFIED on `feat/mcp-sdk-2` (v0.7)**
+**T-01 · High (future compatibility) · IMPLEMENTED, TESTED, VERIFIED in v0.7.0**
 MCP spec **2026-07-28** removes the `initialize` handshake and `ping`, adds a mandatory
 `server/discover`, and deprecates HTTP+SSE (per its changelog). `mcp` 2.x (2.0 released
 2026-07-28; 2.3.0 is current) implements it; MCPSonar pins `mcp<2`. Servers that speak only

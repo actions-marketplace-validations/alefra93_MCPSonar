@@ -1,6 +1,6 @@
 # ADR 0001 · MCP SDK 2.x and spec revision 2026-07-28
 
-**Status:** Accepted, implemented on `feat/mcp-sdk-2` · **Date:** 2026-10-20 · **Audit item:** T-01 ([engineering-audit.md](../engineering-audit.md))
+**Status:** Accepted, implemented in v0.7.0 · **Date:** 2026-10-20 · **Audit item:** T-01 ([engineering-audit.md](../engineering-audit.md))
 **Spike baseline:** `06ba043` (`feat/mcpsonar-web-app`), mcp 1.30.0 vs mcp 2.3.0 (`mcp-types` 2.3.0,
 `httpx2`/`httpcore2` 2.15.1), CPython 3.13, Windows 11. Time-boxed spike: no MCPSonar code was changed.
 
@@ -156,7 +156,7 @@ servers show up in real deployments. (a) stays a documented fallback with a ~2-d
 
 ## Implementation notes (2026-10-20)
 
-How the decision was carried out on `feat/mcp-sdk-2`:
+How the decision was carried out (v0.7.0):
 
 - **Own negotiation, no private SDK import.** `check_engine.negotiate()` mirrors
   `negotiate_auto` (about 40 lines) using only public `ClientSession` methods: `send_discover`,
