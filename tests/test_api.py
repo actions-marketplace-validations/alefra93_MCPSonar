@@ -195,3 +195,24 @@ async def test_tool_changes_review_and_insights():
         await client.aclose()
         await scheduler.stop()
         await storage.close()
+
+
+async def test_secret_references_are_policed_and_shown_as_is():
+    client, scheduler, storage = await _app()
+    try:
+        forbidden = _payload("Leak", headers={"Authorization": "Bearer ${env:AWS_SECRET_ACCESS_KEY}"})
+        resp = await client.post("/api/servers", json=forbidden)
+        assert resp.status_code == 400 and "not allowed" in resp.json()["detail"]
+        escape = _payload("Leak2", headers={"X-Key": "${file:/etc/passwd}"})
+        assert (await client.post("/api/servers", json=escape)).status_code == 400
+
+        ref = "Bearer ${env:MCPSONAR_SECRET_DEMO}"
+        resp = await client.post("/api/servers", json=_payload("Ok", headers={"Authorization": ref}))
+        assert resp.status_code == 201
+        listed = (await client.get("/api/servers")).json()
+        assert listed[0]["headers"] == {"Authorization": ref}  # a name, not a secret
+        assert "MCPSONAR_SECRET_DEMO" in (await client.get("/api/export")).text
+    finally:
+        await client.aclose()
+        await scheduler.stop()
+        await storage.close()

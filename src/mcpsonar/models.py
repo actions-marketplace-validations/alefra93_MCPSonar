@@ -303,7 +303,8 @@ class ServerConfig(BaseModel):
     )
     headers: dict[str, str] = Field(
         default_factory=dict,
-        description="Extra HTTP headers for http/sse, e.g. Authorization for a protected server.",
+        description="Extra HTTP headers for http/sse, e.g. Authorization for a protected server. "
+        "Values may use ${env:NAME} / ${file:PATH} references, resolved at check time.",
     )
 
     # stdio
@@ -312,7 +313,9 @@ class ServerConfig(BaseModel):
     )
     args: list[str] = Field(default_factory=list, description="Arguments for the stdio command.")
     env: dict[str, str] = Field(
-        default_factory=dict, description="Extra environment variables for the stdio process."
+        default_factory=dict,
+        description="Extra environment variables for the stdio process. Values may use "
+        "${env:NAME} / ${file:PATH} references, resolved at check time.",
     )
 
     check_interval_seconds: int = Field(default=60, gt=0)
@@ -330,6 +333,17 @@ class ServerConfig(BaseModel):
         "records it and notifies, 'ignore' disables tool pinning.",
     )
     anomaly: AnomalyConfig = Field(default_factory=AnomalyConfig)
+
+    @field_validator("headers", "env")
+    @classmethod
+    def _check_secret_references(cls, value: dict[str, str]) -> dict[str, str]:
+        # Syntax only: whether a reference is *allowed* depends on the environment mcpsonar
+        # runs in, checked where configs come in and at check time (see secretref).
+        from .secretref import check_syntax
+
+        for item in value.values():
+            check_syntax(item)
+        return value
 
     @field_validator("tools_to_test", mode="before")
     @classmethod

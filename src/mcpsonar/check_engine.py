@@ -46,6 +46,8 @@ from .drift import shape_of
 from .models import CheckEvent, CheckStatus, ServerConfig, Thresholds, ToolProbe, TransportType
 from .netpolicy import policy_transport
 from .redact import scrub, secret_values
+from .secretref import SecretRefError
+from .secretref import resolve as resolve_secrets
 from .tooldefs import normalize_tool
 from .validators import get_validator, run_minimal_common_validation
 
@@ -514,6 +516,11 @@ async def run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
     dashboard and pushed to webhooks/Uptime Kuma, and transport errors quote the URL.
     """
     budget = check_budget_s(cfg)
+    try:
+        cfg = resolve_secrets(cfg)  # this check only: never stored or shown resolved
+    except SecretRefError as exc:
+        return CheckOutcome(CheckEvent(server_id=server_id, status=CheckStatus.DOWN,
+                                       latency_ms=0.0, detail=str(exc)))
     try:
         async with asyncio.timeout(budget):
             outcome = await _run_check(server_id, cfg)

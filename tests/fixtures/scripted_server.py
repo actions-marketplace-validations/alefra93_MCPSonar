@@ -12,6 +12,8 @@ Modes:
   poisoned  a clean tool and one whose *text* imitates a tool-poisoning attack (fake
             <IMPORTANT> block, credential path, concealment, exfiltration parameter).
             Nothing reads or sends anything: it is inert text for the lint to find.
+  env       one tool named ``match`` if the FIXTURE_KEY environment variable equals
+            ``marker_file`` (used as the expected value), else ``mismatch``
   respond   a read-only ``weather`` tool whose answer is picked by the variant written in
             ``marker_file`` (a, a2, b, err, big), so a test can change it between checks
 
@@ -21,6 +23,7 @@ and ``initialize``). Only ever launched by the test suite, from this repository.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 
@@ -61,6 +64,9 @@ async def list_tools(ctx, params: types.PaginatedRequestParams | None) -> types.
                 "sidenote": {"type": "string"}}},
         )
         return types.ListToolsResult(tools=[_tool("ping"), poisoned])
+    if MODE == "env":
+        ok = os.environ.get("FIXTURE_KEY") == MARKER
+        return types.ListToolsResult(tools=[_tool("match" if ok else "mismatch")])
     if MODE == "respond":
         return types.ListToolsResult(tools=[
             _tool("weather", annotations=types.ToolAnnotations(read_only_hint=True)),

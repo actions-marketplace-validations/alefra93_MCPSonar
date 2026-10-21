@@ -34,6 +34,8 @@ from .check_engine import (
 from .lint import Finding, lint_tools
 from .models import ServerConfig, TransportType
 from .redact import scrub, secret_values
+from .secretref import SecretRefError
+from .secretref import resolve as resolve_secrets
 from .tooldefs import index_tools, normalize_tool
 
 
@@ -73,6 +75,11 @@ async def inspect_server(
         else check_budget_s(cfg)
     )
     log = HttpLog()
+    try:
+        cfg = resolve_secrets(cfg)
+    except SecretRefError as exc:
+        result.error = str(exc)
+        return result
     try:
         async with asyncio.timeout(budget), _open_session(cfg, per_request, log) as session:
             handshake = await negotiate(session, cfg.transport == TransportType.STDIO, log)

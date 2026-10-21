@@ -212,9 +212,15 @@ stdio servers are code execution by design. Mitigations: no shell, minimal envir
 refused over an unauthenticated API, and the container runs unprivileged. Real sandboxing
 (seccomp, a separate container per server) is PLANNED as guidance.
 
-**T-03 · Medium · PLANNED**
+**T-03 · Medium · IMPLEMENTED, TESTED in v0.8 (opt-in)**
 Credentials are stored in clear in SQLite (needed to monitor). Plan: a secret-reference
 syntax (`${env:NAME}` / `${file:/run/secrets/x}`) resolved at check time.
+Implemented for header and stdio `env` values; literal credentials still work and are
+still stored in clear. The references themselves are a new read primitive, so they are
+allowlisted (`MCPSONAR_SECRET_*` variables, files under `/run/secrets` or
+`MCPSONAR_SECRETS_DIR` after resolving symlinks): otherwise an API write token, or a shared
+config file, could make mcpsonar read any variable or file and send it as a header to a
+server of the author's choice. Not yet supported in URLs and webhook URLs.
 
 **T-04 · Low · ACCEPTED (documented)**
 With `HTTP(S)_PROXY` set, connections go to the proxy, so IP-level policy is the proxy's job.

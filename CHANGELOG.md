@@ -24,6 +24,19 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     probes; `drift: off` disables it per probe.
   - The status is not affected. See [Response drift](docs/configuration.md#response-drift).
 
+### Secret references
+- Header and stdio `env` values accept `${env:NAME}` and `${file:PATH}`, resolved at every
+  check and never stored, exported or shown resolved. `${file:...}` is re-read on every
+  check, so a rotated secret needs no restart.
+- **Allowlisted reads**, because configurations also come from the API and shared files:
+  variables named `MCPSONAR_SECRET_*` or listed in `MCPSONAR_SECRET_ENV`; files inside
+  `/run/secrets` or `MCPSONAR_SECRETS_DIR` (after resolving symlinks and `..`).
+- **Errors:** a malformed or forbidden reference is refused by the API (400) and by config
+  loading; an unresolvable one makes the check `down` with the reason, never a value.
+- **Display:** references are shown as-is in the dashboard, the API and exports, so an
+  export with references is complete and safe to share.
+- See [Secret references](docs/configuration.md#secret-references).
+
 ### Storage
 - **Versioned schema.** The database records its schema version (`PRAGMA user_version`)
   and is migrated forward on start by numbered steps, each in its own transaction.

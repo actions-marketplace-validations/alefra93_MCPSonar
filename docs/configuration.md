@@ -129,15 +129,71 @@ so its own secrets are not inherited. That is still full code execution:
 
 | Where | Credentials (headers, `env`, URL keys/userinfo, webhook URLs) |
 |---|---|
-| SQLite database | Stored in clear (mcpsonar needs them to monitor). Protect the file. |
+| SQLite database | Stored in clear (mcpsonar needs them to monitor), unless you use [secret references](#secret-references): then only the reference is stored. Protect the file. |
 | API reads, dashboard | Masked as `********`. Sending a masked value back on edit keeps the stored one. |
 | `GET /api/export` | Masked. `?include_secrets=true` for a full export (handle it like a password file). |
 | `POST /api/import` | Refuses a masked export with a clear error, instead of storing placeholders. |
 | Check details, webhooks, Kuma, logs | Scrubbed of the server's credentials and of bearer tokens / keyed URLs. |
 | Passwords / sessions | PBKDF2-SHA256 hashes / SHA-256 of the session token; never reversible. |
 
-Prefer passing tokens through the environment of the process that renders your YAML (e.g.
-a secret manager writing the seed file at deploy time) over committing them.
+### Secret references
+
+Header and stdio `env` values can name a secret instead of containing it. The reference is
+what gets stored, exported and shown; the value is read at every check and used for that
+check only.
+
+```yaml
+servers:
+  github:
+    url: "https://api.githubcopilot.com/mcp/"
+    headers: { Authorization: "Bearer ${env:MCPSONAR_SECRET_GITHUB}" }
+  brave:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-brave-search"]
+    env: { BRAVE_API_KEY: "${file:/run/secrets/brave_api_key}" }
+```
+
+- `${env:NAME}` reads an environment variable of the mcpsonar process.
+- `${file:PATH}` reads a file (absolute path, at most 64 KiB, one trailing newline
+  removed). It is re-read on every check, so a rotated secret needs no restart.
+- References work in header and `env` values, alone or with text around them
+  (`Bearer ${env:...}`). Not yet in URLs or webhook URLs.
+
+**What a reference may read is allowlisted**, because a configuration can come from the
+API (anyone with a write token) or from a shared file. Without a limit,
+`${file:/root/.ssh/id_rsa}` or `${env:AWS_SECRET_ACCESS_KEY}` would be read and sent, as a
+header, to a server chosen by whoever wrote the configuration.
+
+| Reference | Allowed when |
+|---|---|
+| `${env:NAME}` | `NAME` starts with `MCPSONAR_SECRET_`, or is listed in `MCPSONAR_SECRET_ENV` (comma-separated) |
+| `${file:PATH}` | `PATH`, after resolving symlinks and `..`, is inside `/run/secrets` or a directory in `MCPSONAR_SECRETS_DIR` (separated by `:` on Linux/macOS, `;` on Windows) |
+
+The allowlist comes from mcpsonar's own environment, so only whoever starts mcpsonar can
+widen it.
+
+- **When a reference is not allowed or malformed:** the API answers 400 and a config file
+  fails to load, naming the field.
+- **When it cannot be resolved** (variable not set, file missing): the check is `down`, with
+  the reason in its detail. The detail names the reference, never a value.
+- **What is shown:** the dashboard, the API and `/api/export` show a reference as-is
+  (`Bearer ${env:MCPSONAR_SECRET_GITHUB}`). A value with literal text around a reference is
+  masked like any other credential.
+
+With Docker Compose secrets, a file in `secrets:` is mounted under `/run/secrets/<name>`:
+
+```yaml
+services:
+  mcpsonar:
+    secrets: [brave_api_key]
+secrets:
+  brave_api_key:
+    file: ./brave_api_key.txt
+```
+
+On the command line (`scan`, `tools`, `check`), your shell can expand variables itself:
+`-H "Authorization: Bearer $GITHUB_TOKEN"`.
 
 ## Backups
 

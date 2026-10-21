@@ -19,6 +19,8 @@ from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
 from .redact import RedactedValueError, check_no_placeholders, redact_config, restore_secrets
 from .scheduler import Scheduler
+from .secretref import SecretRefError
+from .secretref import check_config as check_references
 from .services import inspect_server
 from .state import StateStore
 from .storage import Storage
@@ -59,8 +61,9 @@ def register_api(
 
     def _secret_safe(cfg: ServerConfig, old: ServerConfig | None = None) -> ServerConfig:
         try:
+            check_references(cfg)
             return restore_secrets(cfg, old)
-        except RedactedValueError as exc:
+        except (RedactedValueError, SecretRefError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     # Reads never return credentials (headers, env, URL keys, webhook tokens): see redact.py.
@@ -259,7 +262,8 @@ def register_api(
             _guard_stdio(cfg)
             try:
                 check_no_placeholders(cfg)
-            except RedactedValueError as exc:
+                check_references(cfg)
+            except (RedactedValueError, SecretRefError) as exc:
                 raise HTTPException(400, f"server '{name}': {exc}") from exc
         created = 0
         for name, cfg in config.servers.items():
