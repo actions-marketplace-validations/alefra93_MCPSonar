@@ -156,7 +156,7 @@ Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfi
 As a **GitHub Action**, pinned to a release:
 
 ```yaml
-- uses: alefra93/MCPSonar@v0.7.0
+- uses: alefra93/MCPSonar@v0.8.0
   with:
     target: https://mcp.example.com/mcp
     lock: mcp-tools.lock.json
@@ -170,7 +170,7 @@ A security check shouldn't change under you any more than the servers it watches
 updates:
 
 ```yaml
-- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.7.0
+- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.8.0
 ```
 
 ```yaml

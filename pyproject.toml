@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpsonar"
-version = "0.7.0"
+version = "0.8.0"
 description = "Uptime monitoring, rug-pull detection and anomaly detection for MCP servers"
 readme = "README.md"
 license = { file = "LICENSE" }

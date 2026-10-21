@@ -3,7 +3,7 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [Unreleased] — proposed 0.8.0
+## [0.8.0] — 2026-10-21
 
 ### Observability
 - **Where the time goes.** Every check now records:
