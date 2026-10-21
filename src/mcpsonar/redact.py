@@ -21,6 +21,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from .models import ServerConfig, UptimeKumaWebhook
+from .secretref import showable
 
 REDACTED = "********"
 
@@ -75,8 +76,10 @@ def redact_config(cfg: ServerConfig) -> dict[str, Any]:
     """JSON-ready dump of a server config (or a MonitoredServer) with secrets masked."""
     data = cfg.model_dump(mode="json")
     data["url"] = redact_url(cfg.url)
-    data["headers"] = {k: REDACTED for k in cfg.headers}
-    data["env"] = {k: REDACTED for k in cfg.env}
+    # A pure reference (``${env:X}``, ``Bearer ${file:...}``) names a secret without holding
+    # it: shown as-is, so it survives an export and can be edited.
+    data["headers"] = {k: v if showable(v) else REDACTED for k, v in cfg.headers.items()}
+    data["env"] = {k: v if showable(v) else REDACTED for k, v in cfg.env.items()}
     for out, webhook in zip(data["webhooks"], cfg.webhooks, strict=True):
         key = "push_url" if isinstance(webhook, UptimeKumaWebhook) else "url"
         out[key] = redact_url(_webhook_url(webhook), whole_path=True)

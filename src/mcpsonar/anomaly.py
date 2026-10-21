@@ -13,6 +13,12 @@ gets its own baseline, learned from its recent healthy checks:
   t-statistic); log space makes a 2× slowdown look the same at 40 ms and at 700 ms.
 * **Flapping** — too many up/degraded/down transitions in a short window.
 
+Before :data:`MIN_BASELINE` checks the baseline is *provisional* (from
+:data:`COLD_START_MIN` checks on): spikes are still caught, but only blatant ones
+(:data:`COLD_START_SENSITIVITY` × the sensitivity and at least :data:`COLD_START_MIN_RATIO` ×
+the median). When more than half the samples are identical (quantized timers, cached
+answers) the MAD is 0: the mean absolute deviation stands in for it, then the floor applies.
+
 Everything here is a pure function of plain lists; policy, persistence and de-duplication
 live in :mod:`mcpsonar.monitor`.
 """
@@ -30,6 +36,13 @@ MAD_SCALE = 1.4826  # makes MAD a consistent estimator of sigma for normal data
 MIN_BASELINE = 20  # checks needed before a baseline is trusted
 BASELINE_WINDOW = 100
 
+# Cold start: a provisional baseline, with stricter spike rules
+COLD_START_MIN = 8
+COLD_START_SENSITIVITY = 1.5  # multiplier on the configured sensitivity
+COLD_START_MIN_RATIO = 2.0
+
+MEAN_AD_SCALE = 1.2533  # sqrt(pi/2): mean absolute deviation -> sigma for normal data
+
 # Spike: besides being statistically unusual, it must matter in practice.
 SPIKE_MIN_DELTA_MS = 20.0
 SPIKE_MIN_RATIO = 1.3
@@ -41,6 +54,7 @@ SHIFT_MAX_AGE = 20  # only report shifts whose "after" segment is recent
 SHIFT_T_THRESHOLD = 6.0
 SHIFT_MIN_RATIO = 1.25
 SHIFT_MIN_DELTA_MS = 20.0
+SHIFT_MAX_MISFIT = 0.2  # share of "after" checks that may still look like the old level
 
 # Flapping
 FLAP_WINDOW = 20
@@ -52,6 +66,10 @@ class Baseline:
     median: float
     spread: float  # scaled MAD, floored so a very stable server doesn't divide by ~0
     samples: int
+
+    @property
+    def provisional(self) -> bool:
+        return self.samples < MIN_BASELINE
 
 
 @dataclass(frozen=True)
@@ -72,6 +90,8 @@ def robust_baseline(values: list[float], min_samples: int = MIN_BASELINE) -> Bas
         return None
     med = median(values)
     mad = median(abs(v - med) for v in values) * MAD_SCALE
+    if mad == 0:  # over half the samples identical: fall back to the mean deviation
+        mad = sum(abs(v - med) for v in values) / len(values) * MEAN_AD_SCALE
     # Floor: 5% of the median (and 1 ms) — below that, variation is noise, not signal.
     spread = max(mad, 0.05 * med, 1.0)
     return Baseline(med, spread, len(values))
@@ -82,11 +102,16 @@ def robust_score(value: float, baseline: Baseline) -> float:
 
 
 def is_spike(value: float, baseline: Baseline, sensitivity: float) -> bool:
-    """A latency far above the baseline both statistically and in absolute terms."""
+    """A latency far above the baseline both statistically and in absolute terms (stricter
+    on a provisional baseline)."""
+    min_ratio = SPIKE_MIN_RATIO
+    if baseline.provisional:
+        sensitivity *= COLD_START_SENSITIVITY
+        min_ratio = COLD_START_MIN_RATIO
     return (
         robust_score(value, baseline) >= sensitivity
         and value - baseline.median >= SPIKE_MIN_DELTA_MS
-        and value >= baseline.median * SPIKE_MIN_RATIO
+        and value >= baseline.median * min_ratio
     )
 
 
@@ -97,8 +122,11 @@ def find_change_point(
 ) -> ChangePoint | None:
     """The most significant single mean shift in ``values`` (latencies, ms), if any.
 
-    Returns None unless the shift is statistically strong (|t| >= ``t_threshold``) *and*
-    practically relevant (medians differ by >= 25% and >= 20 ms).
+    Returns None unless the shift is statistically strong (|t| >= ``t_threshold``),
+    practically relevant (medians differ by >= 25% and >= 20 ms) *and* sustained: at most
+    :data:`SHIFT_MAX_MISFIT` of the "after" segment may sit closer to the old level. Without
+    that, a short burst (fewer slow checks than ``min_segment``) is read as a shift whose
+    "after" segment is padded with normal checks.
     """
     n = len(values)
     if n < 2 * min_segment:
@@ -129,6 +157,10 @@ def find_change_point(
     before, after = median(values[:k]), median(values[k:])
     ratio = max(before, after) / max(min(before, after), 1e-3)
     if abs(t) < t_threshold or ratio < SHIFT_MIN_RATIO or abs(after - before) < SHIFT_MIN_DELTA_MS:
+        return None
+    lb, la = math.log(max(before, 1e-3)), math.log(max(after, 1e-3))
+    misfit = sum(abs(x - lb) < abs(x - la) for x in logs[k:]) / (n - k)
+    if misfit > SHIFT_MAX_MISFIT:
         return None
     return ChangePoint(index=k, before_ms=before, after_ms=after, t_stat=t)
 

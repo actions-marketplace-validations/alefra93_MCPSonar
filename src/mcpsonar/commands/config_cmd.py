@@ -18,6 +18,7 @@ from ..loader import ConfigError, load_config
 from ..models import Config, TransportType
 from ..output import EXIT_ERROR, EXIT_OK, Output, add_format_args, output_for
 from ..redact import redact_config
+from ..secretref import showable
 
 
 def register(sub: Any) -> None:
@@ -69,10 +70,11 @@ def _notes(config: Config) -> list[str]:
     stdio = [n for n, c in config.servers.items() if c.transport == TransportType.STDIO]
     if stdio:
         notes.append(f"stdio servers run a command on the monitoring host: {', '.join(stdio)}")
-    with_secrets = [n for n, c in config.servers.items() if c.headers or c.env]
+    with_secrets = [n for n, c in config.servers.items()
+                    if any(not showable(v) for v in (*c.headers.values(), *c.env.values()))]
     if with_secrets:
-        notes.append("credentials stored in this file (keep it out of version control): "
-                     + ", ".join(with_secrets))
+        notes.append("credentials stored in this file (keep it out of version control, or "
+                     "use ${env:...} / ${file:...} references): " + ", ".join(with_secrets))
     return notes
 
 

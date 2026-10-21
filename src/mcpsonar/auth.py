@@ -42,6 +42,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
+from . import __version__
+
 if TYPE_CHECKING:
     from .storage import Storage
 
@@ -279,14 +281,26 @@ def register_auth(
     @app.get("/api/auth/status")
     async def auth_status(request: Request):
         user = await _current_user(request)
+        bearer = _bearer(request)
+        api_token = await storage.get_api_token(bearer) if bearer else None
         setup_required = not await storage.has_admin()
-        return {
+        authenticated = user is not None or api_token is not None or not require_auth
+        status = {
             "auth_enabled": require_auth,
-            "authenticated": (user is not None) or (not require_auth),
+            "authenticated": authenticated,
             "setup_required": setup_required,
             "setup_token_required": setup_required and setup_token is not None,
             "username": user,
         }
+        if authenticated:  # the version only to whoever may use the instance
+            status["version"] = __version__
+        if bearer:  # lets `mcpsonar doctor` check a CLI token without changing anything
+            status["token"] = (
+                {"valid": False} if api_token is None else
+                {"valid": True, "scope": api_token["scope"],
+                 "expires_at": api_token["expires_at"]}
+            )
+        return status
 
     @app.post("/api/auth/setup")
     async def auth_setup(body: _SetupRequest, request: Request):

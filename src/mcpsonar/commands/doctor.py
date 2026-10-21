@@ -1,8 +1,9 @@
 """``mcpsonar doctor``: is this installation able to do its job, and is it deployed safely?
 
 Read-only by design: it never writes to the database (it opens it ``mode=ro``), never
-launches MCP servers, only talks to the local MCPSonar instance's public status endpoint,
-and never prints a credential (only whether one is set). Exit 1 if any check fails.
+launches MCP servers, only talks to the MCPSonar instance's status endpoint (with
+``MCPSONAR_TOKEN``, to verify it, unless that would send it over plain HTTP), and never
+prints a credential (only whether one is set and works). Exit 1 if any check fails.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import shutil
 import sqlite3
 import ssl
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -150,29 +152,80 @@ def check_tls() -> Check:
     return Check("TLS", "ok", detail)
 
 
-def check_instance(url: str) -> list[Check]:
+def check_instance(url: str, token: str | None = None) -> list[Check]:
+    """The instance the remote commands talk to: reachable, its version, and — when
+    ``MCPSONAR_TOKEN`` is set — whether that token works (never printed)."""
+    host = urlsplit(url).hostname or ""
+    headers = {}
+    clear_text = urlsplit(url).scheme == "http" and not _is_loopback(host)
+    if token and not clear_text:  # never hand the token to a plain-HTTP remote
+        headers["Authorization"] = f"Bearer {token}"
     try:
-        r = httpx2.get(url.rstrip("/") + "/api/auth/status", timeout=3.0)
+        r = httpx2.get(url.rstrip("/") + "/api/auth/status", timeout=3.0, headers=headers)
         r.raise_for_status()
         status = r.json()
         if not isinstance(status, dict):
             raise TypeError("unexpected response body")
     except httpx2.ConnectError:
-        return [Check("Local instance", "skip", f"nothing listening at {url} "
-                                                "(fine if you only use scan/tools/risks)")]
+        return [Check("Instance", "skip", f"nothing listening at {url} "
+                                          "(fine if you only use scan/tools/risks)")]
     except (httpx2.HTTPError, ValueError, TypeError) as exc:
-        return [Check("Local instance", "fail", f"{url} did not answer like MCPSonar: {exc}",
+        return [Check("Instance", "fail", f"{url} did not answer like MCPSonar: {exc}",
                       "Check --url / MCPSONAR_URL, or the instance's log.")]
-    checks = [Check("Local instance", "ok",
+    checks = [Check("Instance", "ok",
                     f"{url} · login {'on' if status.get('auth_enabled') else 'OFF'}")]
     if status.get("setup_required"):
         checks.append(Check("Admin account", "warn", "not created yet",
                             "Open the setup link printed in the instance's log."))
-    host = urlsplit(url).hostname or ""
     if not status.get("auth_enabled") and not _is_loopback(host):
         checks.append(Check("Exposure", "warn", f"login is off and the instance answers on {host}",
                             "Bind it to 127.0.0.1 or turn the login on."))
+    checks.append(_check_token(status, token, clear_text, host))
+    checks.append(_check_instance_version(status))
     return checks
+
+
+def _check_token(status: dict, token: str | None, clear_text: bool, host: str) -> Check:
+    if not token:
+        if status.get("auth_enabled"):
+            return Check("API token", "skip", "MCPSONAR_TOKEN not set: remote commands "
+                         "(status, servers, history ...) will be refused",
+                         "Create a token in the dashboard (API tokens) and set MCPSONAR_TOKEN.")
+        return Check("API token", "skip", "not needed: login is off")
+    if clear_text:
+        return Check("API token", "fail", f"the instance is reached over plain HTTP at {host}: "
+                     "remote commands would send the token unencrypted (not sent by doctor)",
+                     "Use an https:// URL for anything but localhost.")
+    info = status.get("token")
+    if info is None:
+        if not status.get("auth_enabled"):
+            return Check("API token", "ok", "set (not needed: login is off)")
+        return Check("API token", "skip", "the instance is too old to verify tokens (< 0.8)")
+    if not info.get("valid"):
+        return Check("API token", "fail", "MCPSONAR_TOKEN was rejected (expired or revoked?)",
+                     "Create a new token in the dashboard (API tokens).")
+    detail = f"accepted · scope {info.get('scope')}"
+    expires = info.get("expires_at")
+    if expires is not None:
+        days = (expires - time.time()) / 86400
+        detail += f" · expires in {days:.0f} day(s)"
+        if days < 7:
+            return Check("API token", "warn", detail, "Create a replacement token soon.")
+    return Check("API token", "ok", detail)
+
+
+def _check_instance_version(status: dict) -> Check:
+    remote = status.get("version")
+    if remote is None:
+        reason = ("not shown before login" if status.get("auth_enabled")
+                  and not status.get("authenticated") else "not reported (instance < 0.8)")
+        return Check("Instance version", "skip", reason)
+    if remote.split(".")[:2] != __version__.split(".")[:2]:
+        return Check("Instance version", "warn",
+                     f"instance {remote}, this CLI {__version__}",
+                     "Use the same minor version on both sides: output formats and options "
+                     "may differ.")
+    return Check("Instance version", "ok", f"{remote} (same as this CLI)")
 
 
 def _is_loopback(host: str) -> bool:
@@ -227,7 +280,7 @@ def collect(args: Any) -> list[Check]:
         *check_database(args.db),
         check_npx(),
         check_tls(),
-        *check_instance(args.url),
+        *check_instance(args.url, os.environ.get("MCPSONAR_TOKEN")),
         *check_settings(dict(os.environ)),
     ]
     return checks

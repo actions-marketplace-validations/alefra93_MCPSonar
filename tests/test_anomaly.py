@@ -67,3 +67,24 @@ def test_flapping():
     assert ad.is_flapping(["up", "down"] * 5)
     assert not ad.is_flapping(["up"] * 15 + ["down"] * 5)
     assert ad.count_transitions(["up", "up", "down", "up"]) == 2
+
+
+def test_zero_mad_falls_back_to_the_mean_deviation():
+    values = [40.0] * 25 + [60.0] * 10  # over half identical: MAD is 0
+    b = ad.robust_baseline(values)
+    assert b.median == 40.0 and b.spread > 2.0  # > the 5% floor: the 60s count
+
+
+def test_provisional_baseline_only_flags_blatant_spikes():
+    b = ad.robust_baseline(_noisy(80, 10), min_samples=ad.COLD_START_MIN)
+    assert b.provisional and ad.robust_baseline(_noisy(80, 10)) is None
+    assert ad.is_spike(400, b, sensitivity=4)
+    assert not ad.is_spike(140, b, sensitivity=4)  # 1.75x: a spike only once trusted
+    trusted = ad.robust_baseline(_noisy(80, 30))
+    assert not trusted.provisional and ad.is_spike(140, trusted, sensitivity=4)
+
+
+def test_short_burst_is_not_a_shift():
+    # 5 slow checks: the 8-check "after" segment would be padded with 3 normal ones
+    assert ad.find_change_point(_noisy(80, 40) + [400.0] * 5) is None
+    assert ad.find_change_point(_noisy(80, 40) + [400.0] * 8) is not None

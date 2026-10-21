@@ -134,3 +134,18 @@ async def test_dashboard_offers_token_management(env):
     admin, _, _ = env
     page = (await admin.get("/")).text
     assert 'id="tokensOverlay"' in page and "createToken()" in page
+
+
+async def test_status_verifies_a_token_and_shows_the_version_only_when_authenticated(env):
+    admin, anon, _ = env
+    from mcpsonar import __version__
+
+    anonymous = (await anon.get("/api/auth/status")).json()
+    assert "version" not in anonymous and "token" not in anonymous
+    token = (await _create(admin, "write", expires_in_days=30))["token"]
+    good = (await anon.get("/api/auth/status", headers=bearer(token))).json()
+    assert good["authenticated"] and good["version"] == __version__
+    assert good["token"]["valid"] and good["token"]["scope"] == "write"
+    assert good["token"]["expires_at"] is not None and token not in str(good)
+    bad = (await anon.get("/api/auth/status", headers=bearer("mcps_" + "x" * 40))).json()
+    assert bad["token"] == {"valid": False} and "version" not in bad

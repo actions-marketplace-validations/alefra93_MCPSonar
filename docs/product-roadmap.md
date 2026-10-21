@@ -170,7 +170,7 @@ Tools view and `mcpsonar risks` must report the same findings). See [cli.md](cli
 
 | Risk | Effort | Release blockers |
 |---|---|---|
-| Medium | 14–20 days | Schema-migration framework (versioned) before drift data is stored |
+| Medium | 14–20 days | Schema-migration framework (versioned) before drift data is stored — done |
 
 ---
 

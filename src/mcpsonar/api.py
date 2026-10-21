@@ -19,6 +19,8 @@ from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
 from .redact import RedactedValueError, check_no_placeholders, redact_config, restore_secrets
 from .scheduler import Scheduler
+from .secretref import SecretRefError
+from .secretref import check_config as check_references
 from .services import inspect_server
 from .state import StateStore
 from .storage import Storage
@@ -59,8 +61,9 @@ def register_api(
 
     def _secret_safe(cfg: ServerConfig, old: ServerConfig | None = None) -> ServerConfig:
         try:
+            check_references(cfg)
             return restore_secrets(cfg, old)
-        except RedactedValueError as exc:
+        except (RedactedValueError, SecretRefError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     # Reads never return credentials (headers, env, URL keys, webhook tokens): see redact.py.
@@ -181,12 +184,14 @@ def register_api(
         )
         events = await storage.get_history(server_id, since=since, limit=limit)
         healthy = [e for e in events if e.status != CheckStatus.DOWN]
-        baseline = ad.robust_baseline([e.latency_ms for e in healthy])
+        baseline = ad.robust_baseline([e.latency_ms for e in healthy],
+                                      min_samples=ad.COLD_START_MIN)
         cp = ad.find_change_point([e.latency_ms for e in healthy])
         return {
             "baseline": None
             if baseline is None
-            else {"median_ms": baseline.median, "spread_ms": baseline.spread},
+            else {"median_ms": baseline.median, "spread_ms": baseline.spread,
+                  "samples": baseline.samples, "provisional": baseline.provisional},
             "change_point": None
             if cp is None
             else {
@@ -199,6 +204,7 @@ def register_api(
                 {"checked_at": e.checked_at.isoformat(), **a.model_dump(mode="json")}
                 for e in events
                 for a in e.anomalies
+                if not a.ongoing  # one entry per episode
             ],
         }
 
@@ -256,7 +262,8 @@ def register_api(
             _guard_stdio(cfg)
             try:
                 check_no_placeholders(cfg)
-            except RedactedValueError as exc:
+                check_references(cfg)
+            except (RedactedValueError, SecretRefError) as exc:
                 raise HTTPException(400, f"server '{name}': {exc}") from exc
         created = 0
         for name, cfg in config.servers.items():

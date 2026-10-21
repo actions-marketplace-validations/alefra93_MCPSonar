@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcpsonar"
-version = "0.7.0"
+version = "0.8.0"
 description = "Uptime monitoring, rug-pull detection and anomaly detection for MCP servers"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -20,6 +20,10 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: System :: Monitoring",
     "Topic :: Security",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     # 2.x speaks every MCP revision: 2025-era servers through the initialize handshake,
@@ -47,9 +51,22 @@ mcpsonar = "mcpsonar.cli:main"
 [project.urls]
 Homepage = "https://github.com/alefra93/MCPSonar"
 Repository = "https://github.com/alefra93/MCPSonar"
+Documentation = "https://github.com/alefra93/MCPSonar/tree/main/docs"
+Changelog = "https://github.com/alefra93/MCPSonar/blob/main/CHANGELOG.md"
+Issues = "https://github.com/alefra93/MCPSonar/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcpsonar"]
+
+# What a source distribution needs to build and test the package; the screenshots in
+# docs/img are left out (the README links them by absolute URL).
+[tool.hatch.build.targets.sdist]
+# Patterns are gitignore-style: the leading "/" anchors them at the project root.
+include = [
+    "/src/mcpsonar", "/tests", "/docs", "/examples", "/scripts",
+    "/README.md", "/LICENSE", "/CHANGELOG.md", "/SECURITY.md", "/config.example.yaml",
+]
+exclude = ["/docs/img", "__pycache__"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

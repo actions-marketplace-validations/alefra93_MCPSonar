@@ -107,6 +107,34 @@ def render_metrics(servers: list[MonitoredServer], store: StateStore) -> str:
         [f"mcpsonar_anomalies{{{label(e)}}} {len(e.anomalies)}" for e in events],
     )
     lines += _metric(
+        "mcpsonar_check_duration_ms",
+        "Duration of the whole last check (connection, handshake, discovery, probes), in ms.",
+        [
+            f"mcpsonar_check_duration_ms{{{label(e)}}} {e.timings_ms['total']:.3f}"
+            for e in events
+            if e.timings_ms and "total" in e.timings_ms
+        ],
+    )
+    lines += _metric(
+        "mcpsonar_phase_latency_ms",
+        "Duration of each phase of the last check, in ms (phase=handshake|discovery|probes).",
+        [
+            f'mcpsonar_phase_latency_ms{{{label(e)},phase="{phase}"}} {ms:.3f}'
+            for e in events
+            for phase, ms in (e.timings_ms or {}).items()
+            if phase != "total"
+        ],
+    )
+    lines += _metric(
+        "mcpsonar_tool_latency_ms",
+        "Latency of each probed tool call in the last check, in ms.",
+        [
+            f'mcpsonar_tool_latency_ms{{{label(e)},tool="{_escape(tool)}"}} {ms:.3f}'
+            for e in events
+            for tool, ms in e.tool_latency_ms.items()
+        ],
+    )
+    lines += _metric(
         "mcpsonar_last_check_timestamp_seconds",
         "Unix timestamp of the last check.",
         [

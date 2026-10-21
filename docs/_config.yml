@@ -1,0 +1,22 @@
+# GitHub Pages site for MCPSonar, built by GitHub from this folder (Settings → Pages:
+# branch main, folder /docs). Plugins are the ones GitHub Pages supports out of the box.
+title: MCPSonar
+description: >-
+  Self-hosted monitor and security scanner for MCP (Model Context Protocol) servers:
+  uptime, rug-pull and tool-poisoning detection, and a CI gate with SARIF reports.
+url: https://alefra93.github.io
+baseurl: /MCPSonar
+lang: en
+theme: jekyll-theme-cayman
+plugins:
+  - jekyll-seo-tag
+  - jekyll-sitemap
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+github:
+  repository_url: https://github.com/alefra93/MCPSonar
+# banner.html is the source of the README banner image, not a page.
+exclude:
+  - banner.html

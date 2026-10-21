@@ -26,6 +26,10 @@ inputs:
     description: "Lowest finding severity that fails the job: high | medium | low | never."
     required: false
     default: "high"
+  sarif:
+    description: "Also write the results as SARIF 2.1.0 to this path, for github/codeql-action/upload-sarif. With `lock`, alerts point at the tool's line in the lockfile."
+    required: false
+    default: ""
   python-version:
     description: "Python used to run mcpsonar."
     required: false
@@ -48,10 +52,12 @@ runs:
         HEADERS: ${{ inputs.headers }}
         LOCK: ${{ inputs.lock }}
         FAIL_ON: ${{ inputs.fail-on }}
+        SARIF: ${{ inputs.sarif }}
       run: |
         args=()
         [ -n "$TARGET" ] && args+=("$TARGET")
         [ -n "$STDIO" ] && args+=(--stdio "$STDIO")
         [ -n "$LOCK" ] && args+=(--lock "$LOCK")
+        [ -n "$SARIF" ] && args+=(--sarif "$SARIF")
         while IFS= read -r h; do [ -n "$h" ] && args+=(-H "$h"); done <<< "$HEADERS"
         mcpsonar scan "${args[@]}" --fail-on "$FAIL_ON"

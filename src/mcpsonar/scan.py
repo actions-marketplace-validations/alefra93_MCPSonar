@@ -219,6 +219,13 @@ async def run_scan(args: Any) -> int:
         else:
             write_lock(lock, result)
             result.lock_written = str(lock)
+    if getattr(args, "sarif", None):
+        from .report import to_sarif
+
+        Path(args.sarif).write_text(
+            json.dumps(to_sarif([(result, args.lock)]), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
     if args.json or getattr(args, "format", "text") == "json":
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
     else:

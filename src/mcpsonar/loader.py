@@ -13,6 +13,8 @@ from pathlib import Path
 import yaml
 
 from .models import Config
+from .secretref import SecretRefError
+from .secretref import check_config as check_references
 
 
 class _BoolSafeLoader(yaml.SafeLoader):
@@ -63,4 +65,10 @@ def load_config(path: str | Path) -> Config:
         )
     text = p.read_text(encoding="utf-8")
     raw = yaml.load(text, Loader=_BoolSafeLoader) or {}
-    return Config.model_validate(raw)
+    config = Config.model_validate(raw)
+    for name, server in config.servers.items():
+        try:
+            check_references(server)
+        except SecretRefError as exc:
+            raise ConfigError(f"server '{name}': {exc}") from None
+    return config

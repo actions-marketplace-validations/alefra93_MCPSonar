@@ -316,6 +316,15 @@ def parse_duration(text: str) -> int:
     return int(m.group(1)) * {"m": 1, "h": 60, "d": 1440}[m.group(2)]
 
 
+def _medians(maps) -> dict[str, float]:
+    """Median of each key across the given {name: ms} maps (missing/None maps skipped)."""
+    values: dict[str, list[float]] = {}
+    for m in maps:
+        for key, ms in (m or {}).items():
+            values.setdefault(key, []).append(ms)
+    return {key: round(median(v), 1) for key, v in values.items()}
+
+
 def _percentile(values: list[float], q: float) -> float:
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, round(q * (len(ordered) - 1)))]
@@ -375,6 +384,8 @@ async def run_history(args: Any) -> int:
         "change_point": insights.get("change_point"),
         "incidents": incidents(events),
         "anomalies": insights.get("anomalies", []),
+        "phases_median_ms": _medians(e.get("timings_ms") for e in events),
+        "tools_median_ms": _medians(e.get("tool_latency_ms") for e in events),
     }
     if out.json_mode:
         out.emit_json("history", {"server": {"id": server["id"], "name": server["name"]},
@@ -395,6 +406,13 @@ async def run_history(args: Any) -> int:
                   f"{summary['latency_p95_ms']:.0f} ms · max {summary['latency_max_ms']:.0f} ms")
     if summary["baseline"]:
         out.print(f"  baseline {summary['baseline']['median_ms']:.0f} ms (learned median)")
+    phases = summary["phases_median_ms"]
+    if phases:
+        parts = [f"{p} {phases[p]:.0f} ms" for p in ("handshake", "discovery", "probes",
+                                                      "total") if p in phases]
+        out.print(f"  phases   {' · '.join(parts)} (median)")
+    for tool, ms in summary["tools_median_ms"].items():
+        out.print(f"  tool     {tool} {ms:.0f} ms (median)")
     cp = summary["change_point"]
     if cp:
         out.print(st.yellow(f"  shift    {cp['before_ms']:.0f} ms → {cp['after_ms']:.0f} ms "

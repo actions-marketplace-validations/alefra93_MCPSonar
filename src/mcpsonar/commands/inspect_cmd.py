@@ -9,6 +9,7 @@ from typing import Any
 
 from ..lint import RULES, SEVERITY_ORDER, Finding
 from ..output import EXIT_ERROR, EXIT_FAILED, EXIT_OK, Output, add_format_args, output_for, table
+from ..report import finding_details
 from ..services import Inspection, inspect_server
 from ..tooldefs import fingerprint
 from ._target import TargetError, add_target_args, resolve_target
@@ -146,16 +147,7 @@ async def run_risks(args: Any) -> int:
         out.emit_json("risks", {
             "target": found.target,
             "disclaimer": DISCLAIMER,
-            "findings": [
-                {
-                    **f.to_dict(),
-                    "evidence": f.excerpt,
-                    "title": RULES[f.rule].title if f.rule in RULES else f.rule,
-                    "explanation": RULES[f.rule].explanation if f.rule in RULES else f.message,
-                    "remediation": RULES[f.rule].remediation if f.rule in RULES else None,
-                }
-                for f in shown
-            ],
+            "findings": [finding_details(f) for f in shown],
         })
         return code
 

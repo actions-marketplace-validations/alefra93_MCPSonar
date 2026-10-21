@@ -29,7 +29,7 @@ from .loader import ConfigError, load_config
 from .output import EXIT_INTERRUPTED
 from .scheduler import Scheduler
 from .state import StateStore
-from .storage import Storage
+from .storage import Storage, StorageError
 from .websec import LOOPBACK_HOSTS
 
 _TRUE = {"1", "true", "yes", "on"}
@@ -255,6 +255,9 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--format", choices=["text", "json"], default="text",
                       help="Output format (--json is the same as --format json).")
     scan.add_argument("--timeout", type=float, default=20.0, help="Seconds (default 20).")
+    scan.add_argument("--sarif", metavar="FILE",
+                      help="Also write the results as SARIF 2.1.0 (GitHub code scanning). "
+                      "Results point at lines of --lock when given.")
 
     demo = sub.add_parser(
         "demo",
@@ -325,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         except KeyboardInterrupt:
             return 0
-        except ConfigError as exc:
+        except (ConfigError, StorageError) as exc:
             logger.error("%s", exc)
             return 2
     return 0

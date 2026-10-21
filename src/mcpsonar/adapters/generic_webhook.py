@@ -2,7 +2,7 @@
 
 Fires for the statuses listed in ``on`` (default down + degraded) and, when ``on_anomaly`` is
 set (the default), for any check that detected something new — a latency anomaly, flapping,
-or a tool-definition change — whatever its status. Retries transient
+a tool-definition change or a response drift — whatever its status. Retries transient
 failures up to ``max_retries`` attempts with exponential backoff, then raises so the caller
 can log the final failure.
 """
@@ -41,7 +41,8 @@ class GenericWebhookAdapter(BaseAdapter):
         self._backoff = backoff
 
     async def send(self, event: CheckEvent) -> None:
-        if event.status not in self._on and not (self._on_anomaly and event.anomalies):
+        new = any(not a.ongoing for a in event.anomalies)  # an episode is notified once
+        if event.status not in self._on and not (self._on_anomaly and new):
             return  # nothing this webhook cares about
 
         payload = event.model_dump(mode="json")

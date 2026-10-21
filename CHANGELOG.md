@@ -3,6 +3,125 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
+## [0.8.0] — 2026-10-21
+
+### Observability
+- **Where the time goes.** Every check now records:
+  - `timings_ms`: `handshake`, `discovery` (every `tools/list` page), `probes` and `total`
+    (connection set-up included);
+  - `tool_latency_ms`: the latency of each probed tool call.
+- **Unchanged meaning:** `latency_ms` is still the handshake, so baselines, anomaly detection
+  and dashboards behave as before. The new fields are additive in the API, webhooks and the
+  database, through an automatic migration.
+- **Prometheus:** new `mcpsonar_check_duration_ms`, `mcpsonar_phase_latency_ms{phase}` and
+  `mcpsonar_tool_latency_ms{tool}`. No existing metric was renamed.
+- **CLI:** `mcpsonar history` shows the median of each phase and of each probed tool.
+- **Response drift.** For each probed tool, MCPSonar remembers the *shape* of the answer
+  (error or not, content types, structure of `structuredContent`, order of magnitude of the
+  size) and reports a `response_drift` anomaly once when it changes.
+  - Response content is never stored.
+  - Opt-in `drift: hash` (with `drift_ignore`) also catches value changes on deterministic
+    probes; `drift: off` disables it per probe.
+  - The status is not affected. See [Response drift](docs/configuration.md#response-drift).
+
+### Packaging and developer experience
+- **`mcpsonar completion bash|zsh|fish|powershell`**, generated from the CLI's own parser,
+  so it always matches the installed version; no new dependency.
+- **`doctor` checks the remote setup:** whether `MCPSONAR_TOKEN` is accepted (scope,
+  expiry), the instance version against the CLI's, and it refuses to send the token over
+  plain HTTP to a non-local instance. `/api/auth/status` reports the version only to an
+  authenticated caller, and the validity of a bearer token sent with it.
+- **Checked packages.** A CI `package` job builds the wheel and sdist, checks their metadata
+  and contents (`scripts/check_package.py`, `twine check --strict`), installs the wheel into
+  a clean environment, runs it, and runs it through `uvx`. Releases attach both files.
+- **Metadata:** Documentation, Changelog and Issues URLs; README links are absolute, so they
+  work outside GitHub too; the sdist no longer ships the screenshots (7.3 MB to 241 KB).
+
+### Secret references
+- Header and stdio `env` values accept `${env:NAME}` and `${file:PATH}`, resolved at every
+  check and never stored, exported or shown resolved. `${file:...}` is re-read on every
+  check, so a rotated secret needs no restart.
+- **Allowlisted reads**, because configurations also come from the API and shared files:
+  variables named `MCPSONAR_SECRET_*` or listed in `MCPSONAR_SECRET_ENV`; files inside
+  `/run/secrets` or `MCPSONAR_SECRETS_DIR` (after resolving symlinks and `..`).
+- **Errors:** a malformed or forbidden reference is refused by the API (400) and by config
+  loading; an unresolvable one makes the check `down` with the reason, never a value.
+- **Display:** references are shown as-is in the dashboard, the API and exports, so an
+  export with references is complete and safe to share.
+- See [Secret references](docs/configuration.md#secret-references).
+
+### Storage
+- **Versioned schema.** The database records its schema version (`PRAGMA user_version`)
+  and is migrated forward on start by numbered steps, each in its own transaction.
+  Databases from v0.5, v0.6 and v0.7 are upgraded automatically; tests restore databases
+  created by each released tag and check that the migrated schema equals a new one.
+- **Backup before migrating:** `mcpsonar.db.schema<N>.bak` is written next to the database.
+- **No silent downgrade:** a database written by a newer mcpsonar is refused (exit 2).
+- **WAL mode** with a separate read-only connection: reads no longer wait for writes.
+  Back up with SQLite's online backup, not by copying the `.db` file alone (see
+  [Backups](docs/configuration.md#backups)).
+- **Atomic writes.** Each write runs in one transaction, one writer at a time. Before, a
+  multi-statement write (replacing a tool snapshot) could be committed halfway by another
+  task sharing the connection.
+
+### Anomaly detection
+- **Episodes.** A run of slow checks is one episode: the first `latency_spike` is notified,
+  the following ones carry `ongoing: true` (kept in the history, not notified), and the
+  first normal check reports a new **`latency_recovered`** anomaly. Generic webhooks with
+  `on_anomaly` now fire once per episode plus the recovery, instead of on every slow check.
+  `anomaly.degrade` keeps the server degraded for the whole episode.
+- **Baseline poisoning.** Slow checks are left out of the baseline while they are a
+  minority, so repeated bursts no longer inflate it and hide milder spikes.
+- **Sustained regression vs. burst.** A latency shift now needs most of the new segment
+  to sit at the new level: a burst shorter than 8 checks was reported as a shift before.
+  Once reported, the new level becomes the baseline (with `since`, when it started).
+- **Cold start.** From the 8th check a provisional baseline flags blatant spikes only
+  (≥ 2× and 1.5× the sensitivity); the insights API reports `samples` and `provisional`.
+- **Zero MAD.** When over half the latencies are identical, the mean absolute deviation
+  stands in for the MAD.
+- A reproducible scenario corpus (`tests/corpus/anomaly_scenarios.py`) pins all of this.
+
+### Reports and SARIF
+- `mcpsonar report` for one server or every server in `--config`, in **Markdown** (for an
+  issue or PR comment), **JSON** or **SARIF 2.1.0**. It includes findings with each rule's
+  documentation, lockfile drift (`--lock`, read-only) and unreachable servers. Exit 0/1/2
+  like `scan`.
+- `mcpsonar scan --sarif FILE` and a `sarif` input on the GitHub Action. Upload the file with
+  `github/codeql-action/upload-sarif` and findings become **code scanning alerts**, pointing
+  at the tool's line in the lockfile.
+- What the SARIF carries:
+  - every rule, with its help text, `security-severity`, `precision` (the rule's confidence)
+    and OWASP MCP Top 10 tags;
+  - lockfile drift as the rule `tool-definition-changed`;
+  - stable `partialFingerprints` so alerts follow the same issue across runs.
+  - Checked against the official SARIF 2.1.0 schema.
+- `risks --json` also carries each finding's confidence and OWASP categories (same function
+  as the reports).
+
+### Detection quality
+- New adversarial corpus (`tests/corpus/detection.yaml`), run in CI: positive and negative
+  cases for every lint rule, plus documented known limitations run as strict expected
+  failures.
+- Every rule is documented in [docs/detection-rules.md](docs/detection-rules.md) with its
+  severity, **confidence** (precision), OWASP MCP Top 10 mapping, examples and what to
+  review. The registry (`lint.RULES`) is the single source of each rule's severity.
+- Tuned against the corpus and against the tools of the 24 watched public servers: 8 false
+  positives on 42 live tools became 0, and the corpus has 0 misses and 0 false positives
+  (3 documented limitations).
+  - `prompt-injection` ignores CLI flags and parameters (`--ignore`, `override=true`).
+  - `sensitive-path`: private keys, `.env` files and MCP client configs count only when the
+    text asks to read or send them. "Add this server to your mcp.json" is setup, not an
+    attack.
+  - `exfiltration` needs data (conversation, files, keys, …) heading to the destination, so
+    "Send a POST request to https://api…" no longer matches.
+  - `coercive-instruction` needs "always / first / also": "You must provide a city name" and
+    API ordering notes no longer match.
+  - `hidden-unicode` ignores the zero-width joiner inside emoji sequences.
+  - `fake-system-tag` also catches `[SYSTEM]` / `[IMPORTANT]`.
+  - `encoded-blob` ignores long URLs.
+  - `long-description` threshold raised from 1,500 to 4,000 characters (real descriptions
+    reach ~3,300).
+
 ## [0.7.0] — 2026-10-21
 
 ### Added

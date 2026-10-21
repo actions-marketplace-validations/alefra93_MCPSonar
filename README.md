@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/banner.png" alt="MCPSonar — uptime monitoring + rug-pull detection for MCP servers" width="100%">
+  <img src="https://raw.githubusercontent.com/alefra93/MCPSonar/main/docs/img/banner.png" alt="MCPSonar — uptime monitoring + rug-pull detection for MCP servers" width="100%">
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@ Action** to gate CI on it.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/img/dashboard-light.png">
-    <img src="docs/img/dashboard-dark.png" alt="MCPSonar dashboard: four servers, one degraded by an unreviewed tool change" width="92%">
+    <img src="https://raw.githubusercontent.com/alefra93/MCPSonar/main/docs/img/dashboard-dark.png" alt="MCPSonar dashboard: four servers, one degraded by an unreviewed tool change" width="92%">
   </picture>
 </p>
 
@@ -40,6 +40,9 @@ Action** to gate CI on it.
 pip install git+https://github.com/alefra93/MCPSonar.git
 mcpsonar demo
 ```
+
+Or, with [uv](https://docs.astral.sh/uv/), without installing anything permanently:
+`uvx --from git+https://github.com/alefra93/MCPSonar.git mcpsonar demo`.
 
 The dashboard opens against **four scripted MCP servers**. Within a few minutes you'll watch:
 
@@ -54,7 +57,7 @@ Just want to check a server right now? `mcpsonar scan https://your-server/mcp`.
 
 ### Watch the popular hosted MCP servers
 
-[`examples/popular-servers.yaml`](examples/popular-servers.yaml) lists 24 well-known hosted
+[`examples/popular-servers.yaml`](https://github.com/alefra93/MCPSonar/blob/main/examples/popular-servers.yaml) lists 24 well-known hosted
 servers (DeepWiki, Context7, Hugging Face, Microsoft Learn, AWS Knowledge, GitHub, Notion,
 Stripe, Sentry…). One command keeps an eye on all of them, 24/7, restarting with your machine:
 
@@ -75,7 +78,7 @@ later one against it — name, title, description, input/output schema, annotati
 **added / removed / changed** tool is recorded and, by default, keeps the server
 **degraded until a human reviews it**. Invisible Unicode is made visible in the diff.
 
-<p align="center"><img src="docs/img/rugpull-diff.png" alt="Diff of a rug-pulled tool: hidden IMPORTANT block and new sidenote parameter" width="80%"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/alefra93/MCPSonar/main/docs/img/rugpull-diff.png" alt="Diff of a rug-pulled tool: hidden IMPORTANT block and new sidenote parameter" width="80%"></p>
 
 ### 🛡 Tool poisoning — instructions hidden where only the LLM looks
 
@@ -98,7 +101,7 @@ real tool-poisoning attacks:
 These are explainable heuristics that point a human at something worth reading — they
 never change a server's status on their own.
 
-<p align="center"><img src="docs/img/poisoning-lint.png" alt="Tool-poisoning findings for a tool" width="70%"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/alefra93/MCPSonar/main/docs/img/poisoning-lint.png" alt="Tool-poisoning findings for a tool" width="70%"></p>
 
 ### 📈 Anomalies — without hand-tuned thresholds
 
@@ -107,15 +110,25 @@ learns each server's own baseline from its recent healthy checks:
 
 - **Spikes** — robust z-score `(x − median) / (1.4826·MAD)`; median and MAD aren't dragged
   around by the very outliers being hunted. Must also matter in practice (≥ 1.3× and ≥ 20 ms).
+  A run of slow checks is **one episode**: notified once, the following slow checks are
+  marked `ongoing`, and the first normal check reports `latency_recovered`. Slow checks are
+  left out of the baseline, so repeated bursts can't drag it up and hide the next one.
 - **Level shifts** — change-point detection: the split of the recent window with the largest
   two-sample t-statistic on log-latency. Catches "it got 3× slower after Tuesday's deploy"
-  and tells you *when*. Reported once per shift.
+  and tells you *when*. Reported once per shift, only when the new level is sustained (a
+  short burst is a spike episode, not a shift); from then on it is the new baseline.
 - **Flapping** — too many status transitions in the last 20 checks.
+- **Cold start** — from the 8th check a provisional baseline catches only blatant spikes
+  (≥ 2×, 1.5× the sensitivity); full rules from the 20th.
+
+The expected behaviour is pinned by a corpus of reproducible scenarios
+(`tests/corpus/anomaly_scenarios.py`): bursts, outages mid-episode, sustained regressions,
+quantized latencies, baseline poisoning.
 
 Pure Python, no numpy. Informational by default; set `anomaly.degrade: true` to let
 anomalies degrade the status.
 
-<p align="center"><img src="docs/img/latency-shift.png" alt="History with learned baseline band, anomaly rings and a level-shift marker" width="80%"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/alefra93/MCPSonar/main/docs/img/latency-shift.png" alt="History with learned baseline band, anomaly rings and a level-shift marker" width="80%"></p>
 
 ### ✅ And the basics, done MCP-aware
 
@@ -135,7 +148,7 @@ mcpsonar scan https://mcp.example.com/mcp --lock mcp-tools.lock.json   # later r
 mcpsonar scan --stdio "npx -y @modelcontextprotocol/server-everything" --json
 ```
 
-<p align="center"><img src="docs/img/scan-ci.png" alt="mcpsonar scan output failing on a rug-pulled server" width="85%"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/alefra93/MCPSonar/main/docs/img/scan-ci.png" alt="mcpsonar scan output failing on a rug-pulled server" width="85%"></p>
 
 Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfile drift ·
 `2` server unreachable. Accept a legitimate change with `--update-lock`.
@@ -143,7 +156,7 @@ Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfi
 As a **GitHub Action**, pinned to a release:
 
 ```yaml
-- uses: alefra93/MCPSonar@v0.7.0
+- uses: alefra93/MCPSonar@v0.8.0
   with:
     target: https://mcp.example.com/mcp
     lock: mcp-tools.lock.json
@@ -157,7 +170,7 @@ A security check shouldn't change under you any more than the servers it watches
 updates:
 
 ```yaml
-- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.7.0
+- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.8.0
 ```
 
 ```yaml
@@ -168,6 +181,41 @@ updates:
     directory: /
     schedule: { interval: weekly }
 ```
+
+### Findings in GitHub code scanning (SARIF)
+
+`mcpsonar scan --sarif FILE` and `mcpsonar report --format sarif` write SARIF 2.1.0. Upload it
+and every finding, and every tool that changed since the lockfile, becomes an alert in the
+repository's **Security → Code scanning** tab, pointing at the tool's line in the lockfile:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write   # upload-sarif needs it
+jobs:
+  mcp-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: alefra93/MCPSonar@v0.8.0
+        with:
+          target: https://mcp.example.com/mcp
+          lock: mcp-tools.lock.json
+          sarif: mcpsonar.sarif
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()   # upload even when the scan fails the job
+        with:
+          sarif_file: mcpsonar.sarif
+```
+
+For people rather than dashboards, `mcpsonar report` writes the same results as Markdown,
+ready for an issue or a PR comment, for one server or every server in a config file:
+
+```bash
+mcpsonar report --config servers.yaml -o mcp-report.md
+```
+
+What each rule looks for, with examples and limits: [docs/detection-rules.md](https://github.com/alefra93/MCPSonar/blob/main/docs/detection-rules.md).
 
 ## How it works
 
@@ -233,6 +281,18 @@ pip install -e .
 mcpsonar run                  # dashboard at http://127.0.0.1:8675, db at ./mcpsonar.db
 ```
 
+### Option C — Just the command line (no clone)
+
+```bash
+uvx --from git+https://github.com/alefra93/MCPSonar.git mcpsonar scan https://example.com/mcp
+# or keep it installed:
+pipx install git+https://github.com/alefra93/MCPSonar.git
+```
+
+From v0.8.0 every GitHub Release also carries the wheel: `uvx --from <wheel URL> mcpsonar …`.
+Tab completion: `mcpsonar completion bash|zsh|fish|powershell` (see
+[docs/cli.md](https://github.com/alefra93/MCPSonar/blob/main/docs/cli.md#shell-completion)).
+
 ### First run
 
 1. Find the **one-time setup link** in the log: `docker compose logs mcpsonar` (Docker) or the
@@ -259,7 +319,7 @@ No config file is required; servers are managed from the UI.
 
 All commands take `--format json`, honor `NO_COLOR`, and exit 0 (ok), 1 (problem found) or 2
 (could not run). Full reference, including local and remote mode:
-[docs/cli.md](docs/cli.md).
+[docs/cli.md](https://github.com/alefra93/MCPSonar/blob/main/docs/cli.md).
 
 `mcpsonar run` options:
 
@@ -279,7 +339,7 @@ All commands take `--format json`, honor `NO_COLOR`, and exit 0 (ok), 1 (problem
 Secrets and network policy are set through the environment only — `MCPSONAR_SETUP_TOKEN`,
 `MCPSONAR_METRICS_TOKEN`, `MCPSONAR_BLOCK_PRIVATE_NETWORKS`, `MCPSONAR_ALLOW_LINK_LOCAL`,
 `MCPSONAR_OUTBOUND_ALLOW` / `_DENY`. Every option is described in
-[docs/configuration.md](docs/configuration.md).
+[docs/configuration.md](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md).
 
 ### Updating
 
@@ -307,7 +367,7 @@ commands on the host) unless `--allow-stdio-api` is given.
 Credentials you configure (headers, env, API keys in URLs, webhook URLs) are **never shown
 back**: the API, the dashboard and exports mask them, and error details and logs are
 scrubbed. Outbound connections never reach cloud-metadata or link-local addresses. See
-[SECURITY.md](SECURITY.md) for the threat model and a safe production setup.
+[SECURITY.md](https://github.com/alefra93/MCPSonar/blob/main/SECURITY.md) for the threat model and a safe production setup.
 
 ### Managing servers
 
@@ -320,7 +380,7 @@ Everything is done from the dashboard or the JSON API — no restart required:
 - **History** shows uptime, latency, the learned baseline, shifts and anomalies (1h / 6h / 24h / all).
 - **Export / Import** all servers as YAML. Exports mask credentials unless you ask for
   `GET /api/export?include_secrets=true`; for backups, copy the SQLite file
-  ([docs/configuration.md](docs/configuration.md#backups)).
+  ([docs/configuration.md](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md#backups)).
 
 ### Transports
 
@@ -343,7 +403,7 @@ Everything is done from the dashboard or the JSON API — no restart required:
 ### YAML config
 
 Optional — seed on first run with `mcpsonar run --config config.yaml` (see
-[`config.example.yaml`](config.example.yaml)):
+[`config.example.yaml`](https://github.com/alefra93/MCPSonar/blob/main/config.example.yaml)):
 
 ```yaml
 servers:
@@ -388,11 +448,14 @@ servers:
 - **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
   detail (and any anomalies) in the message; `down` maps to down.
 - **Generic webhook** — POSTs the raw `CheckEvent` JSON for statuses in `on`, plus any check
-  that detected something new when `on_anomaly` is set; retries 3× with backoff.
+  that detected something new when `on_anomaly` is set (once per episode, plus the recovery);
+  retries 3× with backoff.
 - **Prometheus** — `GET /metrics`: `mcpsonar_up`, `mcpsonar_status_code`, `mcpsonar_latency_ms`,
   `mcpsonar_latency_baseline_ms`, `mcpsonar_latency_anomaly_score`, `mcpsonar_anomalies`,
   `mcpsonar_tool_changes_pending`, `mcpsonar_tool_risks`, `mcpsonar_tools_failed`,
-  `mcpsonar_spec_version_supported`, …
+  `mcpsonar_spec_version_supported`, and where the time goes:
+  `mcpsonar_check_duration_ms`, `mcpsonar_phase_latency_ms{phase="handshake|discovery|probes"}`,
+  `mcpsonar_tool_latency_ms{tool="…"}` (each probed tool), …
 
 ### Status rules
 
@@ -428,13 +491,15 @@ validators are never touched. Adding an output = one class implementing `BaseAda
 
 ## Roadmap
 
-See [docs/product-roadmap.md](docs/product-roadmap.md). In short:
+See [docs/product-roadmap.md](https://github.com/alefra93/MCPSonar/blob/main/docs/product-roadmap.md). In short:
 
-- **v0.6** — security hardening (in progress on this branch; see the [audit](docs/engineering-audit.md))
-- **v0.7** — per-tool latency, response drift, better anomaly suppression, Slack/Discord/email
-- **v0.8** — PyPI, SARIF output, documented detection rules, onboarding
-- **v0.9** — roles, audit history, an exportable *Trust Report*, field validation
-- **v1.0** — stable interfaces and upgrades, external security review, MCP spec 2026-07-28 / SDK 2.x
+- **v0.6** (released) — security hardening (see the [audit](https://github.com/alefra93/MCPSonar/blob/main/docs/engineering-audit.md))
+- **v0.7** (released) — the CLI, MCP SDK 2.x and spec 2026-07-28
+- **v0.8** — SARIF reports, documented detection rules, per-phase timings, response drift,
+  anomaly episodes, versioned database migrations, secret references, packaging
+- **v0.9** — deterministic demo, onboarding, Slack/Discord/email notifications, roles,
+  an exportable *Trust Report*
+- **v1.0** — stable interfaces and upgrades, external security review
 
 Ideas and PRs welcome — especially new poisoning rules with a real-world example.
 

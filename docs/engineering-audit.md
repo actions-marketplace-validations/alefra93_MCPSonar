@@ -212,9 +212,15 @@ stdio servers are code execution by design. Mitigations: no shell, minimal envir
 refused over an unauthenticated API, and the container runs unprivileged. Real sandboxing
 (seccomp, a separate container per server) is PLANNED as guidance.
 
-**T-03 · Medium · PLANNED**
+**T-03 · Medium · IMPLEMENTED, TESTED in v0.8 (opt-in)**
 Credentials are stored in clear in SQLite (needed to monitor). Plan: a secret-reference
 syntax (`${env:NAME}` / `${file:/run/secrets/x}`) resolved at check time.
+Implemented for header and stdio `env` values; literal credentials still work and are
+still stored in clear. The references themselves are a new read primitive, so they are
+allowlisted (`MCPSONAR_SECRET_*` variables, files under `/run/secrets` or
+`MCPSONAR_SECRETS_DIR` after resolving symlinks): otherwise an API write token, or a shared
+config file, could make mcpsonar read any variable or file and send it as a header to a
+server of the author's choice. Not yet supported in URLs and webhook URLs.
 
 **T-04 · Low · ACCEPTED (documented)**
 With `HTTP(S)_PROXY` set, connections go to the proxy, so IP-level policy is the proxy's job.
@@ -242,12 +248,24 @@ Anomaly detection:
 - alerts are deduplicated only through `anomaly_reported_since`;
 - the zero-MAD case relies on a 5 % floor.
 
+Addressed in v0.8 (IMPLEMENTED, TESTED): spike episodes are notified once and end with a
+`latency_recovered` event; slow checks are excluded from the baseline (resistance to
+burst poisoning; a gradual drift is still learned as normal, by design); a shift needs a
+sustained new level and then becomes the baseline; a provisional baseline covers the cold
+start; the mean absolute deviation replaces a zero MAD. Pinned by
+`tests/corpus/anomaly_scenarios.py`.
+
 **T-10 · Low · PLANNED**
 Probe responses are read whole; there is no output-size limit.
 
-**T-11 · Low · PLANNED**
+**T-11 · Low · IMPLEMENTED, TESTED in v0.8**
 SQLite uses one shared connection, no WAL, and ad-hoc `ALTER TABLE` migrations with no
 schema version.
+Resolved: versioned migrations (`PRAGMA user_version`) with a backup before migrating and
+a refusal of newer schemas; WAL with a separate read-only connection; one transaction per
+write under a single-writer lock. Tested against databases created by v0.5.0, v0.6.0 and
+v0.7.0. SQLite stays the only backend; the `Storage` class is the seam for an optional
+PostgreSQL backend if a real deployment needs one.
 
 **T-12 · Low · PLANNED**
 There is no password-change or session-list UI. Single admin only: no roles and no audit

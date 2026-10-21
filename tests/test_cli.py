@@ -296,7 +296,7 @@ def test_doctor_healthy(capsys, tmp_path, cfg_file, status_server, monkeypatch):
     assert code == 0, out
     assert checks["Database"]["status"] == "ok" and "admin created" in checks["Database"]["detail"]
     assert checks["Config file"]["status"] == "ok"
-    assert checks["Local instance"]["status"] == "ok"
+    assert checks["Instance"]["status"] == "ok"
     assert SECRET not in out
 
 
@@ -320,7 +320,7 @@ def test_doctor_reports_problems_without_leaking(capsys, tmp_path, status_server
 def test_doctor_non_mcpsonar_answer_fails(capsys, tmp_path, status_server):
     url = status_server(["not", "an", "mcpsonar", "status"])
     code, checks, _ = _doctor(capsys, "--db", str(tmp_path / "x.db"), "--url", url)
-    assert checks["Local instance"]["status"] == "fail" and code == 1
+    assert checks["Instance"]["status"] == "fail" and code == 1
 
 
 def test_doctor_text_has_no_color_without_tty(capsys, tmp_path):
@@ -344,3 +344,84 @@ def test_split_command_posix():
 
     assert split_command("'/opt/my tools/srv' --flag \"a b\"") == [
         "/opt/my tools/srv", "--flag", "a b"]
+
+
+def test_doctor_checks_the_cli_token_without_printing_it(capsys, tmp_path, status_server,
+                                                          monkeypatch):
+    from mcpsonar import __version__
+
+    monkeypatch.setenv("MCPSONAR_TOKEN", "mcps_doctor-fixture-token")
+    db = str(tmp_path / "x.db")
+    url = status_server({"auth_enabled": True, "authenticated": True, "version": __version__,
+                         "token": {"valid": True, "scope": "read", "expires_at": None}})
+    code, checks, out = _doctor(capsys, "--db", db, "--url", url)
+    assert checks["API token"]["status"] == "ok" and "scope read" in checks["API token"]["detail"]
+    assert checks["Instance version"]["status"] == "ok"
+    assert "doctor-fixture-token" not in out
+
+    url = status_server({"auth_enabled": True, "token": {"valid": False}, "version": "0.1.0"})
+    code, checks, _ = _doctor(capsys, "--db", db, "--url", url)
+    assert checks["API token"]["status"] == "fail" and code == 1
+    assert checks["Instance version"]["status"] == "warn"
+
+
+def test_doctor_never_sends_the_token_over_plain_http(monkeypatch):
+    from mcpsonar.commands import doctor
+
+    sent = {}
+
+    def fake_get(url, timeout, headers):
+        sent.update(headers)
+        raise doctor.httpx2.ConnectError("unreachable")
+
+    monkeypatch.setattr(doctor.httpx2, "get", fake_get)
+    doctor.check_instance("http://mcpsonar.example.com:8675", "mcps_secret-fixture")
+    assert "Authorization" not in sent
+    doctor.check_instance("https://mcpsonar.example.com", "mcps_secret-fixture")
+    assert sent["Authorization"] == "Bearer mcps_secret-fixture"
+    checks = doctor._check_token({"auth_enabled": True}, "mcps_x", True, "mcpsonar.example.com")
+    assert checks.status == "fail" and "plain HTTP" in checks.detail
+
+
+def test_completion_scripts_cover_every_command(tmp_path):
+    import shutil
+    import subprocess
+
+    from mcpsonar.cli import _build_parser
+    from mcpsonar.commands.completion import SHELLS, script, tree
+
+    root = tree(_build_parser())
+    for shell in SHELLS:
+        text = script(shell)
+        for name, node in root.commands.items():
+            assert name in text, (shell, name)
+            for sub in node.commands:
+                assert sub in text, (shell, name, sub)
+    checks = {"bash": ["bash", "-n"], "zsh": ["zsh", "-n"], "fish": ["fish", "--no-execute"]}
+    for shell, cmd in checks.items():
+        exe = shutil.which(cmd[0])  # full path: on Windows a bare "bash" can mean WSL's
+        if exe is None:
+            continue
+        path = tmp_path / f"c.{shell}"
+        path.write_text(script(shell), encoding="utf-8", newline="\n")
+        subprocess.run([exe, *cmd[1:], path.as_posix()], check=True, timeout=30)
+
+
+def test_bash_completion_completes(tmp_path):
+    import shutil
+    import subprocess
+
+    from mcpsonar.commands.completion import script
+
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash not available")
+    path = tmp_path / "c.bash"
+    path.write_text(script("bash"), encoding="utf-8", newline="\n")
+    probe = (f'source "{path.as_posix()}"; '
+             'COMP_WORDS=(mcpsonar servers ""); COMP_CWORD=2; _mcpsonar; echo "${COMPREPLY[*]}"; '
+             'COMP_WORDS=(mcpsonar scan --fail-on ""); COMP_CWORD=3; _mcpsonar; '
+             'echo "${COMPREPLY[*]}"')
+    out = subprocess.run([bash, "-c", probe], capture_output=True, text=True, timeout=30,
+                         check=True).stdout.splitlines()
+    assert out == ["list show add edit pause resume remove", "high medium low never"]

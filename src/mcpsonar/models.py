@@ -53,10 +53,22 @@ class Anomaly(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["latency_spike", "latency_shift", "flapping", "tool_change"]
+    kind: Literal[
+        "latency_spike", "latency_shift", "latency_recovered", "flapping", "tool_change",
+        "response_drift",
+    ]
     detail: str
     score: float | None = Field(
         default=None, description="Strength of the signal (z-score / t-statistic), if any."
+    )
+    ongoing: bool = Field(
+        default=False,
+        description="True when this check continues an episode already reported by an earlier "
+        "check (e.g. the 2nd, 3rd ... slow check in a row). Kept in the history, not notified.",
+    )
+    since: datetime | None = Field(
+        default=None,
+        description="latency_shift only: when the new latency level started.",
     )
 
 
@@ -124,17 +136,31 @@ class CheckEvent(BaseModel):
     )
     anomalies: list[Anomaly] = Field(
         default_factory=list,
-        description="Things newly detected by *this* check (latency spike/shift, flapping, "
-        "tool changes). Empty on a nominal check.",
+        description="Things detected by *this* check (latency spike/shift/recovery, flapping, "
+        "tool changes, response drift). Entries with ongoing=true continue an episode an "
+        "earlier check already reported. Empty on a nominal check.",
     )
     latency_baseline_ms: float | None = Field(
         default=None,
-        description="Median latency of recent healthy checks (None until enough history).",
+        description="Median latency of recent healthy checks (None until enough history; "
+        "provisional, with stricter spike rules, before 20 checks).",
     )
     latency_score: float | None = Field(
         default=None,
         description="Robust z-score of this check's latency vs. the baseline "
         "((latency - median) / scaled MAD). None until enough history.",
+    )
+    timings_ms: dict[str, float] | None = Field(
+        default=None,
+        description="How long each phase of the check took, in ms: 'handshake' (the "
+        "negotiation RPC that succeeded — the same value as latency_ms), 'discovery' (every "
+        "tools/list page), 'probes' (all configured tool calls) and 'total' (the whole check, "
+        "connection set-up included). None when the server was not reached.",
+    )
+    tool_latency_ms: dict[str, float] = Field(
+        default_factory=dict,
+        description="Latency of each probed tool call, by tool name (only tools that were "
+        "actually called).",
     )
 
 
@@ -245,6 +271,18 @@ class ToolProbe(BaseModel):
         "Annotations are the server's own claims, not guarantees: only probe tools that are "
         "safe to call repeatedly.",
     )
+    drift: Literal["shape", "hash", "off"] = Field(
+        default="shape",
+        description="Response drift detection for this probe. 'shape' (default) compares "
+        "error/no-error, content types, the structure of structured content and the order "
+        "of magnitude of the size — never values. 'hash' also compares the content, minus "
+        "drift_ignore fields: for deterministic probes. 'off' disables it.",
+    )
+    drift_ignore: list[str] = Field(
+        default_factory=list,
+        description="Field names left out of the 'hash' comparison wherever they appear "
+        "(timestamps, request ids, ...).",
+    )
 
 
 class ServerConfig(BaseModel):
@@ -265,7 +303,8 @@ class ServerConfig(BaseModel):
     )
     headers: dict[str, str] = Field(
         default_factory=dict,
-        description="Extra HTTP headers for http/sse, e.g. Authorization for a protected server.",
+        description="Extra HTTP headers for http/sse, e.g. Authorization for a protected server. "
+        "Values may use ${env:NAME} / ${file:PATH} references, resolved at check time.",
     )
 
     # stdio
@@ -274,7 +313,9 @@ class ServerConfig(BaseModel):
     )
     args: list[str] = Field(default_factory=list, description="Arguments for the stdio command.")
     env: dict[str, str] = Field(
-        default_factory=dict, description="Extra environment variables for the stdio process."
+        default_factory=dict,
+        description="Extra environment variables for the stdio process. Values may use "
+        "${env:NAME} / ${file:PATH} references, resolved at check time.",
     )
 
     check_interval_seconds: int = Field(default=60, gt=0)
@@ -292,6 +333,17 @@ class ServerConfig(BaseModel):
         "records it and notifies, 'ignore' disables tool pinning.",
     )
     anomaly: AnomalyConfig = Field(default_factory=AnomalyConfig)
+
+    @field_validator("headers", "env")
+    @classmethod
+    def _check_secret_references(cls, value: dict[str, str]) -> dict[str, str]:
+        # Syntax only: whether a reference is *allowed* depends on the environment mcpsonar
+        # runs in, checked where configs come in and at check time (see secretref).
+        from .secretref import check_syntax
+
+        for item in value.values():
+            check_syntax(item)
+        return value
 
     @field_validator("tools_to_test", mode="before")
     @classmethod
