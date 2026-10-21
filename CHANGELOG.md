@@ -3,7 +3,7 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [0.7.0] — unreleased (date it when tagging)
+## [0.7.0] — 2026-10-21
 
 ### Added
 - CLI commands `tools`, `risks`, `config validate|show|export`, `doctor` and `version`
@@ -42,7 +42,8 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
   - **401/403/429 handling:** *auth required*, *credentials rejected*, *rate limited* +
     `Retry-After`.
   - **Latency continuity:** HTTP times only the RPC that succeeded; stdio includes process
-    startup, as before.
+    startup, as before. A 401/403/429 on the discover probe ends negotiation at once, so
+    protected servers cost one request per check, as before.
 - `httpx` is replaced by `httpx2`, the stack mcp 2.x uses, so the outbound policy covers one HTTP
   stack. On Windows and macOS, TLS uses the operating-system trust store, so corporate CAs work
   without extra configuration.

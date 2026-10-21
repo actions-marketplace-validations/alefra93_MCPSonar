@@ -75,7 +75,7 @@ async def inspect_server(
     log = HttpLog()
     try:
         async with asyncio.timeout(budget), _open_session(cfg, per_request, log) as session:
-            handshake = await negotiate(session, cfg.transport == TransportType.STDIO)
+            handshake = await negotiate(session, cfg.transport == TransportType.STDIO, log)
             result.latency_ms = handshake.latency_ms
             result.spec_version = handshake.protocol_version
             if handshake.server_info:

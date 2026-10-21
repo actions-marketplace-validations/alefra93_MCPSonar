@@ -213,7 +213,9 @@ async def _initialize(session: ClientSession, since: float | None) -> Handshake:
     return _handshake(session, "handshake", (perf_counter() - (since or start)) * 1000.0)
 
 
-async def negotiate(session: ClientSession, include_startup: bool = False) -> Handshake:
+async def negotiate(
+    session: ClientSession, include_startup: bool = False, log: HttpLog | None = None
+) -> Handshake:
     """Pick the protocol era the way the SDK's ``mode="auto"`` does.
 
     Latency: by default only the RPC that succeeded is timed, so a handshake-era HTTP
@@ -227,6 +229,10 @@ async def negotiate(session: ClientSession, include_startup: bool = False) -> Ha
     discover result that is unparseable or offers no modern version — means a handshake-era
     server: fall back to ``initialize``. A server that is modern-only *and* shares no
     version with us raises. Transport errors propagate (an outage is not an era verdict).
+
+    An HTTP 401/403/429 on the probe (recorded in ``log``) is not an era signal either: the
+    endpoint refuses *every* request, so the error is raised at once instead of paying a
+    second round trip for an ``initialize`` that would be refused the same way.
     """
     since = perf_counter() if include_startup else None
     version = LATEST_MODERN_VERSION
@@ -235,6 +241,8 @@ async def negotiate(session: ClientSession, include_startup: bool = False) -> Ha
         try:
             raw = await session.send_discover(version)
         except MCPError as exc:
+            if log is not None and log.status in _REJECTIONS:
+                raise  # protected / throttled endpoint: the answer won't change
             if exc.code == _UNSUPPORTED_PROTOCOL_VERSION:
                 supported = _supported_versions(exc.error.data)
                 mutual = [v for v in MODERN_PROTOCOL_VERSIONS if v in (supported or ())]
@@ -531,7 +539,7 @@ async def _run_check(server_id: str, cfg: ServerConfig) -> CheckOutcome:
 
     try:
         async with _open_session(cfg, timeout_s, log) as session:
-            handshake = await negotiate(session, cfg.transport == TransportType.STDIO)
+            handshake = await negotiate(session, cfg.transport == TransportType.STDIO, log)
             latency_ms = handshake.latency_ms
             spec_version = handshake.protocol_version or None
             pagination_issue: str | None = None

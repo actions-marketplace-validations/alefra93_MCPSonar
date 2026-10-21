@@ -18,7 +18,7 @@ import mcp_types as types
 import pytest
 from mcp.shared.exceptions import MCPError
 
-from mcpsonar.check_engine import negotiate, run_check
+from mcpsonar.check_engine import HttpLog, negotiate, run_check
 from mcpsonar.models import CheckStatus, ServerConfig
 from mcpsonar.monitor import process_check
 from mcpsonar.storage import Storage
@@ -229,3 +229,24 @@ async def test_baseline_with_annotation_extras_repins_quietly(tmp_path):
         assert ev.tool_changes == 0
     finally:
         await storage.close()
+
+
+@pytest.mark.parametrize("status", [401, 403, 429])
+async def test_rejected_probe_does_not_fall_back(status):
+    """A protected/throttled endpoint refuses initialize the same way: falling back would
+    double the round trips and show a false latency step on every OAuth server."""
+    log = HttpLog(status=status)
+
+    async def discover(version):
+        raise MCPError(-32603, "Server returned an error response")
+
+    s = _Session(discover)
+    with pytest.raises(MCPError):
+        await negotiate(s, log=log)
+    assert not s.initialized and len(s.discover_calls) == 1
+
+
+async def test_other_http_errors_still_fall_back():
+    s = _Session(_slow_not_found(0.0))
+    hs = await negotiate(s, log=HttpLog(status=None, last_error=404))
+    assert s.initialized and hs.era == "handshake"
