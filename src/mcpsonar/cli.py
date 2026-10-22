@@ -273,6 +273,9 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Run this scenario (or all of them) instead of the dashboard tour.")
     demo.add_argument("--auto", action="store_true",
                       help="With --scenario: don't wait for Enter between steps.")
+    demo.add_argument("--dashboard", action="store_true",
+                      help="With --scenario: also serve the dashboard on --port; it follows "
+                      "every step live.")
     add_format_args(demo)
     demo.add_argument("--port", type=int, default=8675)
     demo.add_argument("--interval", type=int, default=3,

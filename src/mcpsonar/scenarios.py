@@ -12,6 +12,10 @@ regression was reported once...). A scenario that does not is a failure, so
 ``mcpsonar demo --scenario all --auto`` doubles as an end-to-end smoke test: exit 0 when
 every scenario behaved, 1 otherwise, 2 if the demo servers could not start.
 
+With ``--dashboard`` the dashboard runs alongside, on a temporary database where the demo
+servers are registered as ordinary monitored servers: each check goes through the scheduler
+(like "Check now"), so statuses, tool changes and anomalies appear there as the steps run.
+
 Fully local: the servers run on 127.0.0.1, no credentials, no network.
 """
 
@@ -20,8 +24,10 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import socket
 import sys
 import tempfile
+import webbrowser
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +35,7 @@ from typing import Any
 
 import httpx2
 
-from .demo import DemoServer, scenario_servers, spawn
+from .demo import DemoServer, _QuietServer, scenario_servers, spawn
 from .lint import SEVERITY_ORDER, lint_tool
 from .models import CheckEvent, CheckStatus, ServerConfig
 from .monitor import process_check
@@ -60,12 +66,17 @@ class Ctx:
     """What a step can do: steer a demo server, run the engine, print, assert."""
 
     def __init__(self, servers: list[DemoServer], storage: Storage, out: Output,
-                 workdir: Path) -> None:
+                 workdir: Path, live: _Live | None = None) -> None:
         self.servers = {s.key: s for s in servers}
         self.storage = storage
         self.out = out
         self.s = out.style
         self.workdir = workdir
+        self.live = live
+
+    def id(self, key: str) -> str:
+        """The server's id in storage (the dashboard registers them with generated ids)."""
+        return self.live.ids[key] if self.live else key
 
     def cfg(self, key: str) -> ServerConfig:
         return ServerConfig(url=self.servers[key].url)
@@ -77,6 +88,8 @@ class Ctx:
             (await client.post(url, json=state)).raise_for_status()
 
     async def check(self, key: str) -> CheckEvent:
+        if self.live:  # through the scheduler, so the dashboard sees it live
+            return await self.live.scheduler.run_once(self.live.servers[key])
         return await process_check(self.storage, key, self.cfg(key))
 
     def print(self, text: str = "") -> None:
@@ -160,7 +173,7 @@ async def _rug_pull(ctx: Ctx) -> dict[str, Any]:
     await ctx.set("calculator", tools="poisoned")
     ev = await ctx.check("calculator")
     ctx.print(ctx.event_line("calculator", ev))
-    changes = await ctx.storage.list_tool_changes("calculator")
+    changes = await ctx.storage.list_tool_changes(ctx.id("calculator"))
     for change in changes:
         ctx.print(f"      {ctx.s.yellow('~')} tool {ctx.s.bold(change['tool'])}: "
                   f"{', '.join(change['fields'])} changed")
@@ -180,7 +193,7 @@ async def _rug_pull(ctx: Ctx) -> dict[str, Any]:
 
 
 async def _rug_review(ctx: Ctx) -> dict[str, Any]:
-    reviewed = await ctx.storage.acknowledge_tool_changes("calculator")
+    reviewed = await ctx.storage.acknowledge_tool_changes(ctx.id("calculator"))
     ev = await ctx.check("calculator")
     ctx.print(f"    {reviewed} change(s) reviewed")
     ctx.print(ctx.event_line("calculator", ev))
@@ -338,15 +351,76 @@ class _Indented:
         self._out.print(_indent(text) if text else text)
 
 
+# ---- the live dashboard --------------------------------------------------------------- #
+@dataclass
+class _Live:
+    storage: Storage
+    scheduler: Any
+    servers: dict[str, Any]  # key -> MonitoredServer
+    ids: dict[str, str]
+    url: str
+    server: Any
+    task: asyncio.Task
+
+    @classmethod
+    async def start(cls, cast: list[DemoServer], port: int, workdir: Path) -> _Live:
+        import uvicorn
+
+        from .dashboard import create_app
+        from .scheduler import Scheduler
+        from .state import StateStore
+
+        with socket.socket() as probe:  # fail fast and clearly on a busy port
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                raise RuntimeError(f"port {port} is already in use") from None
+        storage = await Storage.open(workdir / "demo.db")
+        store = StateStore()
+        scheduler = Scheduler(storage, store)  # never started: the scenario runs the checks
+        servers = {}
+        for d in cast:
+            # A long interval: nothing runs on a timer, every check is a scenario step.
+            servers[d.key] = await storage.create_server(
+                d.name, ServerConfig(url=d.url, check_interval_seconds=86400))
+        app = create_app(storage, store, scheduler, require_auth=False)
+        server = _QuietServer(uvicorn.Config(app, host="127.0.0.1", port=port,
+                                             log_level="warning", access_log=False))
+        async def serve() -> None:
+            try:
+                await server.serve()
+            except SystemExit:  # uvicorn exits the process when it cannot bind
+                pass
+
+        task = asyncio.create_task(serve(), name="demo:dashboard")
+        for _ in range(200):
+            if server.started or task.done():
+                break
+            await asyncio.sleep(0.05)
+        if not server.started:
+            await asyncio.gather(task, return_exceptions=True)
+            await scheduler.stop()
+            await storage.close()
+            raise RuntimeError(f"the dashboard could not listen on port {port}")
+        return cls(storage, scheduler, servers, {k: m.id for k, m in servers.items()},
+                   f"http://127.0.0.1:{port}", server, task)
+
+    async def stop(self) -> None:
+        self.server.should_exit = True
+        await asyncio.gather(self.task, return_exceptions=True)
+        await self.scheduler.stop()
+        await self.storage.close()
+
+
 # ---- running -------------------------------------------------------------------------- #
 async def _run_one(scenario: Scenario, servers: list[DemoServer], out: Output, pause: bool,
-                   workdir: Path) -> dict[str, Any]:
+                   workdir: Path, live: _Live | None = None) -> dict[str, Any]:
     s = out.style
     record: dict[str, Any] = {"key": scenario.key, "title": scenario.title, "steps": [],
                               "passed": False, "error": None}
     out.print(s.bold(f"▶ {scenario.title}") + s.dim(f" — {scenario.summary}"))
-    storage = await Storage.open(":memory:")
-    ctx = Ctx(servers, storage, out, workdir)
+    storage = live.storage if live else await Storage.open(":memory:")
+    ctx = Ctx(servers, storage, out, workdir, live)
     try:
         for n, step in enumerate(scenario.steps, 1):
             out.print()
@@ -365,7 +439,8 @@ async def _run_one(scenario: Scenario, servers: list[DemoServer], out: Output, p
         out.print()
         out.print(f"  {s.red('✗')} {scenario.title}: {exc}")
     finally:
-        await storage.close()
+        if live is None:
+            await storage.close()
     out.print()
     return record
 
@@ -383,12 +458,29 @@ async def run(args: Any, out: Output) -> int:
     pause = not args.auto and not out.json_mode and sys.stdin.isatty() and sys.stdout.isatty()
     workdir = Path(tempfile.mkdtemp(prefix="mcpsonar-scenario-"))
     records = []
+    live = None
     try:
+        if args.dashboard:
+            try:
+                live = await _Live.start(servers, args.port, workdir)
+            except RuntimeError as exc:
+                out.error(f"{exc}; choose another --port")
+                return EXIT_ERROR
+            view.print(view.style.bold(f"Dashboard: {live.url}")
+                       + view.style.dim("  (it follows every step)"))
+            view.print()
+            if not args.no_browser:
+                webbrowser.open(live.url)
         for key in keys:
-            records.append(await _run_one(SCENARIOS[key], servers, view, pause, workdir))
+            records.append(await _run_one(SCENARIOS[key], servers, view, pause, workdir, live))
             if pause and key != keys[-1]:
                 await asyncio.to_thread(input, view.style.dim("↵ next scenario "))
+        if live and pause:
+            await asyncio.to_thread(input, view.style.dim(f"Dashboard still at {live.url} · "
+                                                          "↵ to quit "))
     finally:
+        if live:
+            await live.stop()
         proc.terminate()
         try:
             await asyncio.to_thread(proc.wait, 5)
@@ -397,7 +489,8 @@ async def run(args: Any, out: Output) -> int:
     passed = all(r["passed"] for r in records)
     if out.json_mode:
         out.emit_json("demo.scenarios", {"passed": passed, "scenarios": records,
-                                         "files": str(workdir)})
+                                         "files": str(workdir),
+                                         "dashboard": live.url if live else None})
     elif len(records) > 1:
         ok = sum(r["passed"] for r in records)
         out.print(f"{ok}/{len(records)} scenarios behaved as expected.")

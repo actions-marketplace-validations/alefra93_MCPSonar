@@ -46,7 +46,8 @@ Or, with [uv](https://docs.astral.sh/uv/), without installing anything permanent
 
 Prefer the terminal, or presenting it? `mcpsonar demo --scenario rug-pull` tells the same
 stories step by step, deterministic and on the real engine (`healthy`, `poisoning`, `rug-pull`,
-`latency-regression`, `ci-gate`, or `all`).
+`latency-regression`, `ci-gate`, or `all`; add `--dashboard` to watch it live). See
+[docs/demo](https://github.com/alefra93/MCPSonar/blob/main/docs/demo/README.md).
 
 The dashboard opens against **four scripted MCP servers**. Within a few minutes you'll watch:
 

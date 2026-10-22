@@ -54,6 +54,8 @@ uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.0/mcpsona
 
 ## Documentation
 
+- [Demo](demo/README.md): step-by-step scenarios for talks and articles, and a
+  [speaker guide](demo/speaker-guide.md).
 - [Command line](cli.md): every command, local and remote mode, exit codes, completion.
 - [Configuration](configuration.md): servers, probes, secrets, backups, reverse proxy.
 - [Detection rules](detection-rules.md): what each lint rule looks for, its limits, its
