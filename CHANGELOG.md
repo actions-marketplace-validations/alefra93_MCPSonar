@@ -35,6 +35,16 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     escaped: no `<!channel>` or `@everyone`, no disguised links. URLs must be https and
     are masked.
   - **Link to the instance:** `MCPSONAR_PUBLIC_URL` adds it to each message.
+- **Email notifications** (`type: email`): the same rules, through your SMTP server.
+  - **TLS:** required (STARTTLS that must succeed, or implicit TLS on 465). Plain SMTP only
+    for a relay on localhost.
+  - **Outbound policy:** checked before connecting; the connection goes only to an allowed
+    address, and the certificate is verified against the host name.
+  - **Password:** masked in every output and restored on edit. It can be a secret
+    reference.
+  - **Tested** against a scripted SMTP server with a certificate generated for the test:
+    STARTTLS, implicit TLS, a server without STARTTLS, an untrusted certificate and a
+    blocked destination.
 - **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a
   server is back up from an `on` status. `CheckEvent` gains `previous_status` and
   `previous_status_since` (live events only).

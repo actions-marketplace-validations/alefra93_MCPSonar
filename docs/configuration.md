@@ -117,7 +117,7 @@ of the last answer and reports a `response_drift` anomaly when it changes.
 
 | `type` | Sends | When |
 |---|---|---|
-| `slack`, `discord` | A short message | Once per **change** (see below) |
+| `slack`, `discord`, `email` | A short message | Once per **change** (see below) |
 | `generic` | The raw `CheckEvent` JSON (POST) | Every check in an `on` status, every new anomaly, and once on recovery |
 | `uptime_kuma` | A push (GET) | Every check (Kuma keeps its own state) |
 
@@ -133,6 +133,28 @@ Slack and Discord speak in changes, not checks:
 
 `degraded` includes an unreviewed tool change, so a rug pull produces one message when it
 happens and one when it is reviewed.
+
+Email goes through your SMTP server:
+
+```yaml
+    webhooks:
+      - type: email
+        host: smtp.example.com
+        port: 587                    # 587 with STARTTLS (default), or 465 with security: tls
+        username: mcpsonar@example.com
+        password: "${env:MCPSONAR_SECRET_SMTP}"   # a secret reference; see above
+        sender: mcpsonar@example.com
+        to: [ops@example.com]
+```
+
+- **TLS is required.** With `starttls` (the default), a server that does not offer STARTTLS
+  is an error: MCPSonar never falls back to plain text, and never sends the password
+  unencrypted. `security: none` is accepted only for a relay on `localhost`.
+- **The outbound policy applies.** The SMTP host is resolved and checked like any
+  destination. MCPSonar then connects only to an allowed address, while TLS still verifies
+  the certificate against the host name.
+- **The password** is masked like any credential. As a secret reference it is never stored,
+  and it is resolved for each message.
 
 Each message can link to your instance. Set `MCPSONAR_PUBLIC_URL` (e.g.
 `https://mcpsonar.example.com`) to add it.

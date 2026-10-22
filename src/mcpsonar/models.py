@@ -14,6 +14,7 @@ is performed.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -256,14 +257,11 @@ def _check_https_url(value: str) -> str:
     return value
 
 
-class _ChatWebhook(BaseModel):
-    """A chat notification: one message per change, not one per check."""
+class _NotifyRules(BaseModel):
+    """When a human notification is sent: one message per change, not one per check."""
 
     model_config = ConfigDict(extra="forbid")
 
-    url: Annotated[str, AfterValidator(_check_https_url)] = Field(
-        description="Incoming-webhook URL (a secret: masked in every output)."
-    )
     on: list[CheckStatus] = Field(
         default_factory=lambda: [CheckStatus.DOWN, CheckStatus.DEGRADED],
         description="Notify when the server enters one of these statuses (once per change).",
@@ -275,6 +273,12 @@ class _ChatWebhook(BaseModel):
     on_recovery: bool = Field(
         default=True,
         description="Notify once when the server is back up, with how long it was out.",
+    )
+
+
+class _ChatWebhook(_NotifyRules):
+    url: Annotated[str, AfterValidator(_check_https_url)] = Field(
+        description="Incoming-webhook URL (a secret: masked in every output)."
     )
 
 
@@ -290,9 +294,74 @@ class DiscordWebhook(_ChatWebhook):
     type: Literal["discord"] = "discord"
 
 
+_EMAIL = re.compile(r"^[^@\s<>,;]+@[^@\s<>,;]+\.[^@\s<>,;]+$")
+_HOSTNAME = re.compile(r"^[A-Za-z0-9.-]{1,253}$|^\[?[0-9A-Fa-f:.]+\]?$")
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _check_email(value: str) -> str:
+    if not _EMAIL.match(value):
+        raise ValueError(f"not an email address: {value!r}")
+    return value
+
+
+EmailAddress = Annotated[str, AfterValidator(_check_email)]
+
+
+class EmailWebhook(_NotifyRules):
+    """Email through an SMTP server, over TLS (STARTTLS on 587, or implicit TLS on 465)."""
+
+    type: Literal["email"] = "email"
+    host: str = Field(description="SMTP server host name.")
+    port: int = Field(default=587, ge=1, le=65535)
+    security: Literal["starttls", "tls", "none"] = Field(
+        default="starttls",
+        description="'starttls' (required, not opportunistic) or 'tls' (implicit, port 465). "
+        "'none' only for a relay on localhost (e.g. a local test inbox).",
+    )
+    username: str | None = None
+    password: str | None = Field(
+        default=None,
+        description="SMTP password: preferably a secret reference (${env:...} / ${file:...}).",
+    )
+    sender: EmailAddress = Field(description="From address.")
+    to: list[EmailAddress] = Field(min_length=1, max_length=20, description="Recipients.")
+    subject_prefix: str = Field(default="[MCPSonar]", max_length=40)
+
+    @field_validator("host")
+    @classmethod
+    def _check_host(cls, value: str) -> str:
+        if not _HOSTNAME.match(value):
+            raise ValueError(f"not a host name: {value!r}")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def _check_password_reference(cls, value: str | None) -> str | None:
+        from .secretref import check_syntax
+
+        if value is not None:
+            check_syntax(value)
+        return value
+
+    @field_validator("subject_prefix")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        if "\r" in value or "\n" in value:
+            raise ValueError("must be a single line")
+        return value
+
+    @model_validator(mode="after")
+    def _plaintext_only_on_localhost(self) -> EmailWebhook:
+        if self.security == "none" and self.host.lower() not in _LOCAL_HOSTS:
+            raise ValueError("security 'none' sends mail (and the password) unencrypted: "
+                             "only allowed with a relay on localhost")
+        return self
+
+
 # Discriminated union so the YAML `type:` picks the right model with clear errors.
 WebhookConfig = Annotated[
-    UptimeKumaWebhook | GenericWebhook | SlackWebhook | DiscordWebhook,
+    UptimeKumaWebhook | GenericWebhook | SlackWebhook | DiscordWebhook | EmailWebhook,
     Field(discriminator="type"),
 ]
 

@@ -9,9 +9,17 @@ from __future__ import annotations
 
 import httpx2
 
-from ..models import DiscordWebhook, GenericWebhook, ServerConfig, SlackWebhook, UptimeKumaWebhook
+from ..models import (
+    DiscordWebhook,
+    EmailWebhook,
+    GenericWebhook,
+    ServerConfig,
+    SlackWebhook,
+    UptimeKumaWebhook,
+)
 from .base import BaseAdapter
 from .chat import DiscordAdapter, SlackAdapter
+from .email import EmailAdapter
 from .generic_webhook import GenericWebhookAdapter
 from .prometheus import CONTENT_TYPE, render_metrics
 from .uptime_kuma import UptimeKumaAdapter
@@ -20,6 +28,7 @@ __all__ = [
     "CONTENT_TYPE",
     "BaseAdapter",
     "DiscordAdapter",
+    "EmailAdapter",
     "GenericWebhookAdapter",
     "SlackAdapter",
     "UptimeKumaAdapter",
@@ -50,4 +59,6 @@ def build_push_adapters(
             adapters.append(cls(webhook.url, name, webhook.on, client,
                                 on_anomaly=webhook.on_anomaly,
                                 on_recovery=webhook.on_recovery))
+        elif isinstance(webhook, EmailWebhook):
+            adapters.append(EmailAdapter(webhook, name, client))
     return adapters

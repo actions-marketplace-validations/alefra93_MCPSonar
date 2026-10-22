@@ -461,8 +461,8 @@ servers:
 
 - **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
   detail (and any anomalies) in the message; `down` maps to down.
-- **Slack and Discord** — one message per change: down or degraded, back up (with how long
-  it was out), new findings. Never one per check; server-controlled text is escaped so it
+- **Slack, Discord and email** — one message per change: down or degraded, back up (with
+  how long it was out), new findings. Email over required TLS, through the outbound policy. Never one per check; server-controlled text is escaped so it
   can't ping a channel or disguise a link. See
   [notifications](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md#notifications).
 - **Generic webhook** — POSTs the raw `CheckEvent` JSON for statuses in `on`, plus any check
