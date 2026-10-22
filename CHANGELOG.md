@@ -62,11 +62,30 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     - per-server buttons have accessible names ("History · calculator");
     - the heartbeat strip has a text equivalent ("Last 40 checks: 37 up, 3 down");
     - the tool count is a real button.
+- **Accounts and roles:** `viewer`, `operator`, `admin`; admins manage accounts
+  (`/api/users`). The first account and every account from earlier versions is an admin;
+  the last admin can be neither demoted nor deleted. See
+  [Accounts and roles](docs/configuration.md#accounts-and-roles).
+- **Your account:** change your password (your other sessions end), list your sessions
+  (with their address and browser) and end any of them, keep your API tokens private. An
+  admin resetting a password also ends that person's sessions and tokens.
+- **Audit log** (`/api/audit`, admins): logins, accounts, tokens, server changes, imports,
+  exports with secrets and every approval of tool changes. No credentials. It is
+  append-only in the database itself (triggers refuse UPDATE and DELETE).
+- **Schema version 4:** user roles, session ids, the audit log. It is migrated
+  automatically, with a backup.
 - **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a
   server is back up from an `on` status. `CheckEvent` gains `previous_status` and
   `previous_status_since` (live events only).
 
 ### Changed
+- **Security: stricter API tokens.**
+  - **Lower of scope and role:** a token now acts with the lower of its scope and its
+    owner's current role, and never as an admin.
+  - **Owner gone:** a token whose owner no longer exists stops working.
+  - **No longer possible with a write token:** adding or changing a stdio server's process,
+    and exporting with secrets. These are admin actions and need a dashboard session.
+  - **Visibility:** tokens are listed and revoked by their owner (admins see all).
 - **The way back after a latency shift is found sooner.** After a reported shift, the next
   shift is searched relative to the new level. Before, a short regression followed by a fix
   could hide the return to normal, because the strongest split of the window was the

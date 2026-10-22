@@ -14,11 +14,18 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
+from .auth import principal, require
 from .incidents import incidents
 from .lint import lint_tool
 from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
-from .redact import RedactedValueError, check_no_placeholders, redact_config, restore_secrets
+from .redact import (
+    RedactedValueError,
+    check_no_placeholders,
+    redact_config,
+    redact_url,
+    restore_secrets,
+)
 from .scheduler import Scheduler
 from .secretref import SecretRefError
 from .secretref import check_config as check_references
@@ -37,6 +44,14 @@ _STDIO_REFUSED = (
 )
 
 
+def _audit_view(name: str, cfg: ServerConfig) -> dict:
+    """What the audit log keeps about a server: never a credential (masked URL; for stdio,
+    the command without its arguments, which may carry keys)."""
+    if cfg.transport == TransportType.STDIO:
+        return {"name": name, "transport": "stdio", "command": cfg.command}
+    return {"name": name, "transport": cfg.transport.value, "url": redact_url(cfg.url)}
+
+
 def _same_process(a: ServerConfig, b: ServerConfig) -> bool:
     return (a.command, a.args, a.env) == (b.command, b.args, b.env)
 
@@ -51,14 +66,19 @@ def register_api(
 ) -> None:
     background: set[asyncio.Task] = set()  # keep fire-and-forget tasks referenced
 
-    def _guard_stdio(new: ServerConfig, old: MonitoredServer | None = None) -> None:
-        """Refuse a new or changed stdio launch command when stdio is not allowed over the
-        API. Pausing/renaming an existing (YAML-seeded) stdio server stays possible."""
-        if allow_stdio or new.transport != TransportType.STDIO:
+    def _guard_stdio(new: ServerConfig, old: MonitoredServer | None = None,
+                     request: Request | None = None) -> None:
+        """A new or changed stdio process (command, arguments or environment) runs code on
+        this host: admins only, and never over an unauthenticated API unless allowed.
+        Pausing or renaming an existing stdio server stays possible for operators."""
+        if new.transport != TransportType.STDIO:
             return
         if old is not None and old.transport == TransportType.STDIO and _same_process(old, new):
             return
-        raise HTTPException(403, _STDIO_REFUSED)
+        if not allow_stdio:
+            raise HTTPException(403, _STDIO_REFUSED)
+        if request is not None:
+            require(request, "admin")
 
     def _secret_safe(cfg: ServerConfig, old: ServerConfig | None = None) -> ServerConfig:
         try:
@@ -82,31 +102,42 @@ def register_api(
         return redact_config(server)
 
     @app.post("/api/servers", status_code=201)
-    async def create_server(payload: ServerInput):
-        _guard_stdio(payload)
+    async def create_server(payload: ServerInput, request: Request):
+        _guard_stdio(payload, request=request)
         cfg = _secret_safe(payload.to_server_config())
         server = await storage.create_server(payload.name, cfg, enabled=payload.enabled)
         scheduler.add(server)  # start checking immediately, no restart
+        await storage.audit(principal(request).actor, "server.created", server.id,
+                            _audit_view(server.name, cfg))
         return redact_config(server)
 
     @app.put("/api/servers/{server_id}")
-    async def update_server(server_id: str, payload: ServerInput):
+    async def update_server(server_id: str, payload: ServerInput, request: Request):
         existing = await storage.get_server(server_id)
         if existing is None:
             raise HTTPException(404, "server not found")
         cfg = _secret_safe(payload.to_server_config(), existing.to_server_config())
-        _guard_stdio(cfg, existing)
+        _guard_stdio(cfg, existing, request)
         server = await storage.update_server(server_id, payload.name, cfg, enabled=payload.enabled)
         if server is None:
             raise HTTPException(404, "server not found")
         await scheduler.update(server)  # restart its loop with the new config
+        detail = {**_audit_view(server.name, cfg), "enabled": server.enabled}
+        if existing.enabled != server.enabled:
+            action = "server.resumed" if server.enabled else "server.paused"
+        else:
+            action = "server.updated"
+        await storage.audit(principal(request).actor, action, server_id, detail)
         return redact_config(server)
 
     @app.delete("/api/servers/{server_id}", status_code=204)
-    async def delete_server(server_id: str):
+    async def delete_server(server_id: str, request: Request):
+        existing = await storage.get_server(server_id)
         await scheduler.remove(server_id)
         if not await storage.delete_server(server_id):
             raise HTTPException(404, "server not found")
+        await storage.audit(principal(request).actor, "server.deleted", server_id,
+                            _audit_view(existing.name, existing) if existing else None)
         return JSONResponse(status_code=204, content=None)
 
     @app.post("/api/servers/{server_id}/check")
@@ -153,12 +184,21 @@ def register_api(
         return changes
 
     @app.post("/api/servers/{server_id}/tool-changes/ack")
-    async def acknowledge_tool_changes(server_id: str):
-        """Mark pending tool changes as reviewed: the current definitions become trusted."""
+    async def acknowledge_tool_changes(server_id: str, request: Request):
+        """Mark pending tool changes as reviewed: the current definitions become trusted.
+        Who approved what is kept in the audit log."""
         server = await storage.get_server(server_id)
         if server is None:
             raise HTTPException(404, "server not found")
+        pending = await storage.list_tool_changes(server_id)
         count = await storage.acknowledge_tool_changes(server_id)
+        if count:
+            await storage.audit(principal(request).actor, "tool_changes.approved", server_id, {
+                "server": server.name,
+                "changes": [{"kind": c["kind"], "tool": c["tool"], "fields": c["fields"],
+                             "findings": len(lint_tool(c["after"])) if c.get("after") else 0}
+                            for c in pending],
+            })
         current = store.get(server_id)
         if current is not None:
             store.update(current.model_copy(update={"tool_changes": 0}))
@@ -230,13 +270,16 @@ def register_api(
         return [e.model_dump(mode="json") for e in events]
 
     @app.get("/api/export")
-    async def export_yaml(include_secrets: bool = False) -> PlainTextResponse:
+    async def export_yaml(request: Request, include_secrets: bool = False) -> PlainTextResponse:
         """Export all servers as a YAML config (same shape as the seed file).
 
         Credentials are redacted unless ``include_secrets=true`` is asked for explicitly: an
         export is a file people attach to issues and drop into chats. A full backup is
         better taken from the SQLite file itself (see docs/configuration.md).
         """
+        if include_secrets:
+            who = require(request, "admin")
+            await storage.audit(who.actor, "servers.exported_with_secrets")
         servers = await storage.list_servers()
         out: dict = {"servers": {}}
         for s in servers:
@@ -263,7 +306,7 @@ def register_api(
         except Exception as exc:
             raise HTTPException(400, f"invalid YAML config: {exc}") from exc
         for name, cfg in config.servers.items():  # all-or-nothing: check before creating any
-            _guard_stdio(cfg)
+            _guard_stdio(cfg, request=request)
             try:
                 check_no_placeholders(cfg)
                 check_references(cfg)
@@ -274,4 +317,6 @@ def register_api(
             server = await storage.create_server(name=name, config=cfg)
             scheduler.add(server)
             created += 1
+        await storage.audit(principal(request).actor, "servers.imported", None,
+                            {"servers": [_audit_view(n, c) for n, c in config.servers.items()]})
         return {"imported": created}

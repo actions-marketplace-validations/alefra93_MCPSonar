@@ -179,6 +179,41 @@ so its own secrets are not inherited. That is still full code execution:
 - Without a login (`--no-auth`), stdio servers cannot be added over the API at all unless
   `--allow-stdio-api` is given; seed them from YAML instead.
 
+## Accounts and roles
+
+The first account, created with the setup link, is an **admin**. Admins add other accounts
+(`/api/users`, or the dashboard) with one of three roles:
+
+| | viewer | operator | admin |
+|---|---|---|---|
+| See servers, history, tools, changes, findings | ✓ | ✓ | ✓ |
+| Check now, approve tool changes | | ✓ | ✓ |
+| Add, edit, pause, delete HTTP/SSE servers; import | | ✓ | ✓ |
+| Add or change a **stdio** server's command, arguments or environment | | | ✓ |
+| Export with secrets (`/api/export?include_secrets=true`) | | | ✓ |
+| Accounts, other people's API tokens, the audit log | | | ✓ |
+
+- **stdio is admin-only** because a stdio server runs a command on the monitoring host;
+  changing its environment can be enough to run code (`NODE_OPTIONS`, …). Operators can
+  still rename or pause one.
+- **The last admin** can be neither demoted nor deleted.
+- **Your own account:** everyone can change their password (other sessions end), list
+  their sessions and end any of them, and create API tokens: read tokens for a viewer,
+  read or write for an operator or admin.
+- **An admin can reset someone's password.** That ends the person's sessions and revokes
+  their API tokens.
+
+**API tokens act with the lower of their scope and their owner's current role**: a read
+token is a viewer, a write token at most an operator. Admin actions always need a signed-in
+dashboard session. Demoting an account demotes its tokens, and deleting it, even directly in
+the database, disables them.
+
+**The audit log** (`GET /api/audit`, admins) records logins, account and token changes,
+server changes, imports, exports with secrets, and every approval of tool changes: who,
+when, and which tools. It never contains credentials. Server URLs are masked; for stdio
+servers only the command is kept, not its arguments. The database itself refuses UPDATE and
+DELETE on it (triggers), so no API can rewrite it.
+
 ## Secrets: what is shown, stored and exported
 
 | Where | Credentials (headers, `env`, URL keys/userinfo, webhook URLs) |

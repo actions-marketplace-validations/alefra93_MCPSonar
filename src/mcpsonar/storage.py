@@ -196,6 +196,32 @@ async def _m3_probe_shapes(conn: aiosqlite.Connection) -> None:
     )
 
 
+async def _m4_teams(conn: aiosqlite.Connection) -> None:
+    """Roles, identifiable sessions, and the append-only audit log (v0.9)."""
+    users = await _columns(conn, "users")
+    if "role" not in users:  # every account before v0.9 was the admin
+        await conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'")
+    if "password_changed_at" not in users:
+        await conn.execute("ALTER TABLE users ADD COLUMN password_changed_at TEXT")
+    sessions = await _columns(conn, "sessions")
+    for name in ("id", "client", "user_agent"):
+        if name not in sessions:
+            await conn.execute(f"ALTER TABLE sessions ADD COLUMN {name} TEXT")
+    await conn.execute(
+        "UPDATE sessions SET id = lower(hex(randomblob(8))) WHERE id IS NULL")
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_id ON sessions (id)")
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, target TEXT, "
+        "detail_json TEXT)")
+    # Append-only, enforced by the database itself: no API can rewrite history.
+    for verb in ("UPDATE", "DELETE"):
+        await conn.execute(
+            f"CREATE TRIGGER IF NOT EXISTS audit_log_no_{verb.lower()} BEFORE {verb} ON "
+            "audit_log BEGIN SELECT RAISE(ABORT, 'the audit log is append-only'); END")
+
+
 Migration = Callable[[aiosqlite.Connection], Awaitable[None]]
 
 #: (version, description, step). Append only: a released step is never edited.
@@ -203,6 +229,7 @@ MIGRATIONS: list[tuple[int, str, Migration]] = [
     (1, "schema of v0.7.0 (upgrades v0.5 / v0.6 databases)", _m1_baseline),
     (2, "per-phase timings on checks (v0.8)", _m2_check_timings),
     (3, "response shapes of probed tools (v0.8)", _m3_probe_shapes),
+    (4, "roles, identifiable sessions and the audit log (v0.9)", _m4_teams),
 ]
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 
@@ -582,14 +609,93 @@ class Storage:
             )
 
     async def has_admin(self) -> bool:
+        """Whether any account exists (the first one is created through setup)."""
         cur = await self._read.execute("SELECT COUNT(*) AS n FROM users")
         return (await cur.fetchone())["n"] > 0
+
+    async def get_user(self, username: str) -> dict | None:
+        cur = await self._read.execute(
+            "SELECT username, role, created_at, password_changed_at FROM users "
+            "WHERE username = ?", (username,))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def list_users(self) -> list[dict]:
+        cur = await self._read.execute(
+            "SELECT u.username, u.role, u.created_at, u.password_changed_at, "
+            "(SELECT COUNT(*) FROM sessions s WHERE s.username = u.username "
+            " AND s.expires_at > ?) AS sessions, "
+            "(SELECT COUNT(*) FROM api_tokens t WHERE t.created_by = u.username) AS tokens "
+            "FROM users u ORDER BY u.username", (time.time(),))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def create_user(self, username: str, password: str, role: str) -> bool:
+        """Add an account; False if the username is taken."""
+        salt, pw_hash = await asyncio.to_thread(hash_password, password)
+        now = datetime.now(UTC).isoformat()
+        async with self._tx() as db:
+            cur = await db.execute(
+                "INSERT OR IGNORE INTO users (username, password_hash, salt, created_at, role, "
+                "password_changed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (username, pw_hash, salt, now, role, now))
+        return cur.rowcount == 1
+
+    async def set_role(self, username: str, role: str) -> bool:
+        """Change a role, refusing to leave the instance without an admin."""
+        async with self._tx() as db:
+            if role != "admin":
+                cur = await db.execute(
+                    "SELECT COUNT(*) FROM users WHERE role = 'admin' AND username != ?",
+                    (username,))
+                if (await cur.fetchone())[0] == 0:
+                    raise ValueError("the last admin cannot be demoted")
+            cur = await db.execute("UPDATE users SET role = ? WHERE username = ?",
+                                   (role, username))
+        return cur.rowcount == 1
+
+    async def set_password(self, username: str, password: str,
+                           keep_session_token: str | None = None) -> bool:
+        """New password; every session of the user ends except ``keep_session_token``."""
+        salt, pw_hash = await asyncio.to_thread(hash_password, password)
+        keep = token_digest(keep_session_token) if keep_session_token else ""
+        async with self._tx() as db:
+            cur = await db.execute(
+                "UPDATE users SET password_hash = ?, salt = ?, password_changed_at = ? "
+                "WHERE username = ?",
+                (pw_hash, salt, datetime.now(UTC).isoformat(), username))
+            await db.execute("DELETE FROM sessions WHERE username = ? AND token_hash != ?",
+                             (username, keep))
+        return cur.rowcount == 1
+
+    async def delete_user(self, username: str) -> bool:
+        """Remove an account with its sessions and API tokens; never the last admin."""
+        async with self._tx() as db:
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM users WHERE role = 'admin' AND username != ?",
+                (username,))
+            others = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT role FROM users WHERE username = ?", (username,))
+            row = await cur.fetchone()
+            if row is None:
+                return False
+            if row[0] == "admin" and others == 0:
+                raise ValueError("the last admin cannot be deleted")
+            await db.execute("DELETE FROM sessions WHERE username = ?", (username,))
+            await db.execute("DELETE FROM api_tokens WHERE created_by = ?", (username,))
+            await db.execute("DELETE FROM users WHERE username = ?", (username,))
+        return True
+
+    async def revoke_user_tokens(self, username: str) -> int:
+        async with self._tx() as db:
+            cur = await db.execute("DELETE FROM api_tokens WHERE created_by = ?", (username,))
+        return cur.rowcount
 
     async def create_admin(self, username: str, password: str) -> None:
         salt, pw_hash = await asyncio.to_thread(hash_password, password)
         async with self._tx() as db:
             await db.execute(
-                "INSERT INTO users (username, password_hash, salt, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (username, password_hash, salt, created_at, role) "
+                "VALUES (?, ?, ?, ?, 'admin')",
                 (username, pw_hash, salt, datetime.now(UTC).isoformat()),
             )
 
@@ -599,8 +705,8 @@ class Storage:
         salt, pw_hash = await asyncio.to_thread(hash_password, password)
         async with self._tx() as db:
             cur = await db.execute(
-                "INSERT INTO users (username, password_hash, salt, created_at) "
-                "SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)",
+                "INSERT INTO users (username, password_hash, salt, created_at, role) "
+                "SELECT ?, ?, ?, ?, 'admin' WHERE NOT EXISTS (SELECT 1 FROM users)",
                 (username, pw_hash, salt, datetime.now(UTC).isoformat()),
             )
         return cur.rowcount == 1
@@ -627,34 +733,72 @@ class Storage:
         return True
 
     # ---- sessions ------------------------------------------------------------ #
-    async def create_session(self, username: str, ttl_s: float) -> str:
-        """Start a session; returns the token for the cookie (only its hash is stored)."""
+    async def create_session(self, username: str, ttl_s: float, client: str | None = None,
+                             user_agent: str | None = None) -> str:
+        """Start a session; returns the token for the cookie (only its hash is stored).
+        ``client`` / ``user_agent`` are kept so the user can recognize and end sessions."""
         token = new_session_token()
         now = time.time()
         async with self._tx() as db:
             await db.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
             await db.execute(
-                "INSERT INTO sessions (token_hash, username, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?)",
-                (token_digest(token), username, now, now + ttl_s),
+                "INSERT INTO sessions (token_hash, username, created_at, expires_at, id, "
+                "client, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (token_digest(token), username, now, now + ttl_s, uuid.uuid4().hex[:16],
+                 client, (user_agent or "")[:200] or None),
             )
         return token
 
-    async def get_session_user(self, token: str) -> str | None:
-        """The username of a live session, or None (unknown, revoked or expired)."""
+    async def get_session(self, token: str) -> dict | None:
+        """The live session behind a cookie: its id, user and role (None if gone)."""
         cur = await self._read.execute(
-            "SELECT s.username FROM sessions s JOIN users u ON u.username = s.username "
+            "SELECT s.id, s.username, u.role FROM sessions s "
+            "JOIN users u ON u.username = s.username "
             "WHERE s.token_hash = ? AND s.expires_at > ?",
             (token_digest(token), time.time()),
         )
         row = await cur.fetchone()
-        return row["username"] if row else None
+        return dict(row) if row else None
+
+    async def list_sessions(self, username: str) -> list[dict]:
+        cur = await self._read.execute(
+            "SELECT id, created_at, expires_at, client, user_agent, token_hash FROM sessions "
+            "WHERE username = ? AND expires_at > ? ORDER BY created_at DESC",
+            (username, time.time()))
+        return [dict(r) for r in await cur.fetchall()]
+
+    async def delete_session_by_id(self, username: str, session_id: str) -> bool:
+        async with self._tx() as db:
+            cur = await db.execute("DELETE FROM sessions WHERE username = ? AND id = ?",
+                                   (username, session_id))
+        return cur.rowcount == 1
 
     async def delete_session(self, token: str) -> None:
         async with self._tx() as db:
             await db.execute(
                 "DELETE FROM sessions WHERE token_hash = ?", (token_digest(token),)
             )
+
+    # ---- audit log (append-only) ------------------------------------------- #
+    async def audit(self, actor: str, action: str, target: str | None = None,
+                    detail: dict | None = None) -> None:
+        """Record who did what. The table refuses UPDATE and DELETE (database triggers)."""
+        async with self._tx() as db:
+            await db.execute(
+                "INSERT INTO audit_log (at, actor, action, target, detail_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (datetime.now(UTC).isoformat(), actor, action, target,
+                 json.dumps(detail, sort_keys=True) if detail else None))
+
+    async def list_audit(self, limit: int = 200, before_id: int | None = None) -> list[dict]:
+        """Newest first; ``before_id`` pages further back."""
+        cur = await self._read.execute(
+            "SELECT * FROM audit_log WHERE id < ? ORDER BY id DESC LIMIT ?",
+            (before_id if before_id is not None else 2**62, limit))
+        return [{"id": r["id"], "at": r["at"], "actor": r["actor"], "action": r["action"],
+                 "target": r["target"],
+                 "detail": json.loads(r["detail_json"]) if r["detail_json"] else None}
+                for r in await cur.fetchall()]
 
     # ---- API tokens (CLI / automation) ------------------------------------- #
     @staticmethod
@@ -687,13 +831,23 @@ class Storage:
         cur = await self._read.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,))
         return self._token_row(await cur.fetchone()), token
 
-    async def list_api_tokens(self) -> list[dict]:
-        cur = await self._read.execute("SELECT * FROM api_tokens ORDER BY created_at")
+    async def list_api_tokens(self, owner: str | None = None) -> list[dict]:
+        """Every token, or only ``owner``'s."""
+        if owner is None:
+            cur = await self._read.execute("SELECT * FROM api_tokens ORDER BY created_at")
+        else:
+            cur = await self._read.execute(
+                "SELECT * FROM api_tokens WHERE created_by = ? ORDER BY created_at", (owner,))
         return [self._token_row(r) for r in await cur.fetchall()]
 
-    async def revoke_api_token(self, token_id: str) -> bool:
+    async def revoke_api_token(self, token_id: str, owner: str | None = None) -> bool:
+        """Revoke a token (only if it belongs to ``owner``, when given)."""
         async with self._tx() as db:
-            cur = await db.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+            if owner is None:
+                cur = await db.execute("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+            else:
+                cur = await db.execute(
+                    "DELETE FROM api_tokens WHERE id = ? AND created_by = ?", (token_id, owner))
         return cur.rowcount > 0
 
     async def get_api_token(self, token: str) -> dict | None:

@@ -1,6 +1,13 @@
-"""Single-admin authentication for the dashboard.
+"""Accounts, roles and authentication for the dashboard and the API.
 
 Self-contained, no extra dependencies:
+
+* **Roles**: ``viewer`` (read everything), ``operator`` (also check, add / edit / delete HTTP
+  servers, approve tool changes), ``admin`` (also stdio servers, exports with secrets,
+  accounts and the audit log). The first account, created through setup, is an admin; the
+  last admin can be neither demoted nor deleted.
+* **Who did what** goes to an append-only audit log (database triggers refuse UPDATE and
+  DELETE on it): logins, account and token changes, server changes, approvals.
 
 * **Passwords** are hashed with PBKDF2-HMAC-SHA256 (stdlib) at 600k iterations, stored as
   ``pbkdf2_sha256$<iterations>$<hex>``. Hashes from v0.5 and earlier (bare hex, 200k
@@ -18,10 +25,12 @@ Self-contained, no extra dependencies:
   two concurrent setup requests, exactly one wins.
 * **Brute force**: repeated failed logins from one client address are throttled (429).
 * **API tokens** (for the CLI and automation): ``Authorization: Bearer mcps_…``. Stored as
-  SHA-256 only, shown once at creation, scoped ``read`` (GET/HEAD only) or ``write``,
-  optionally expiring, revocable. They are created and revoked only from a signed-in
-  dashboard session; a token can never mint or list tokens. Bearer requests carry no cookie,
-  so they are not exposed to CSRF.
+  SHA-256 only, shown once at creation, scoped ``read`` or ``write``, optionally expiring,
+  revocable. A token acts with the *lower* of its scope (read = viewer, write = operator)
+  and its owner's current role, and never as an admin: admin actions need a signed-in
+  dashboard session. A token whose owner was deleted stops working. Tokens are created and
+  revoked only from a dashboard session; a token can never mint or list tokens. Bearer
+  requests carry no cookie, so they are not exposed to CSRF.
 
 When ``require_auth`` is off (``--no-auth``, behind a trusted proxy / on localhost) the
 middleware is not installed and everything is open. ``/metrics`` stays outside the login so
@@ -36,6 +45,7 @@ import hmac
 import secrets
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import FastAPI, HTTPException, Request
@@ -65,6 +75,52 @@ _PUBLIC_PATHS = {
 }
 
 CookieSecure = Literal["auto", "always", "never"]
+Role = Literal["viewer", "operator", "admin"]
+
+ROLES: tuple[str, ...] = ("viewer", "operator", "admin")
+_RANK = {role: i for i, role in enumerate(ROLES)}
+TOKEN_CAP = {"read": "viewer", "write": "operator"}  # a token never acts as an admin
+# Paths any signed-in user may POST/DELETE to, whatever their role (their own account).
+_SELF_SERVICE = ("/api/auth/", "/api/tokens")
+
+
+def lower_role(a: str, b: str) -> str:
+    return a if _RANK[a] <= _RANK[b] else b
+
+
+@dataclass(frozen=True)
+class Principal:
+    """Who is making a request, and with which effective role."""
+
+    name: str
+    role: str
+    via: Literal["session", "token", "open"]
+    token: str | None = None
+    session_id: str | None = None
+
+    @property
+    def actor(self) -> str:
+        """How the audit log names this principal."""
+        return f"{self.name} (token {self.token})" if self.token else self.name
+
+
+OPEN = Principal("anonymous (login disabled)", "admin", "open")
+
+
+def principal(request: Request) -> Principal:
+    """The request's principal; with the login disabled (``--no-auth``), everyone is OPEN."""
+    return getattr(request.state, "principal", OPEN)
+
+
+def require(request: Request, role: str, *, session: bool = False) -> Principal:
+    """403 unless the request may act as ``role`` (and, with ``session``, comes from a
+    signed-in dashboard session rather than an API token)."""
+    who = principal(request)
+    if session and who.via == "token":
+        raise HTTPException(403, "this needs a signed-in dashboard session, not an API token")
+    if _RANK[who.role] < _RANK[role]:
+        raise HTTPException(403, f"this needs the {role} role (yours: {who.role})")
+    return who
 
 
 # ---- password hashing ------------------------------------------------------- #
@@ -168,6 +224,23 @@ class _SetupRequest(_Credentials):
     setup_token: str | None = Field(default=None, max_length=256)
 
 
+class _PasswordChange(BaseModel):
+    current_password: str = Field(max_length=MAX_PASSWORD_LEN)
+    new_password: str = Field(max_length=MAX_PASSWORD_LEN)
+
+
+class _NewUser(_Credentials):
+    role: Role = "viewer"
+
+
+class _RoleChange(BaseModel):
+    role: Role
+
+
+class _PasswordReset(BaseModel):
+    password: str = Field(max_length=MAX_PASSWORD_LEN)
+
+
 class _TokenRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     scope: Literal["read", "write"] = "read"
@@ -200,6 +273,10 @@ def register_auth(
                 429, "too many failed attempts, try again later", {"Retry-After": str(wait)}
             )
 
+    async def _new_session(request: Request, username: str) -> str:
+        return await storage.create_session(username, MAX_AGE, _client_key(request),
+                                            request.headers.get("user-agent"))
+
     def _start_session(request: Request, token: str) -> JSONResponse:
         secure = cookie_secure == "always" or (
             cookie_secure == "auto" and request.url.scheme == "https"
@@ -211,9 +288,27 @@ def register_auth(
         )
         return resp
 
-    async def _current_user(request: Request) -> str | None:
+    async def _current_session(request: Request) -> dict | None:
         token = request.cookies.get(COOKIE_NAME)
-        return await storage.get_session_user(token) if token else None
+        return await storage.get_session(token) if token else None
+
+    async def _current_user(request: Request) -> str | None:
+        session = await _current_session(request)
+        return session["username"] if session else None
+
+    async def _token_principal(bearer: str) -> Principal | None:
+        api_token = await storage.get_api_token(bearer)
+        if api_token is None:
+            return None
+        owner = await storage.get_user(api_token["created_by"])
+        if owner is None:  # the account is gone: so is what it delegated
+            return None
+        role = lower_role(owner["role"], TOKEN_CAP[api_token["scope"]])
+        return Principal(owner["username"], role, "token", token=api_token["name"])
+
+    def _password_ok(password: str) -> None:
+        if len(password) < MIN_PASSWORD_LEN:
+            raise HTTPException(400, f"password must be at least {MIN_PASSWORD_LEN} characters")
 
     def _bearer(request: Request) -> str | None:
         header = request.headers.get("authorization", "")
@@ -229,26 +324,33 @@ def register_auth(
                 return await call_next(request)
             bearer = _bearer(request)
             if bearer is not None:
-                api_token = await storage.get_api_token(bearer)
-                if api_token is None:
+                who = await _token_principal(bearer)
+                if who is None:
                     return JSONResponse({"detail": "invalid, expired or revoked API token"},
                                         status_code=401)
                 if path.startswith("/api/tokens"):
                     return JSONResponse(
                         {"detail": "API tokens cannot manage tokens: use the dashboard"},
                         status_code=403)
-                if api_token["scope"] == "read" and request.method not in _READ_METHODS:
+                if request.method not in _READ_METHODS and who.role == "viewer":
                     return JSONResponse({"detail": "this API token is read-only"},
                                         status_code=403)
-                request.state.user = f"token:{api_token['name']}"
-                request.state.via_token = True
-                return await call_next(request)
-            user = await _current_user(request)
-            if user is None:
-                if path.startswith("/api/"):
-                    return JSONResponse({"detail": "authentication required"}, status_code=401)
-                return RedirectResponse("/login", status_code=302)
-            request.state.user = user
+            else:
+                session = await _current_session(request)
+                if session is None:
+                    if path.startswith("/api/"):
+                        return JSONResponse({"detail": "authentication required"},
+                                            status_code=401)
+                    return RedirectResponse("/login", status_code=302)
+                who = Principal(session["username"], session["role"], "session",
+                                session_id=session["id"])
+                if (request.method not in _READ_METHODS and who.role == "viewer"
+                        and not path.startswith(_SELF_SERVICE)):
+                    return JSONResponse({"detail": "viewers can look but not change anything"},
+                                        status_code=403)
+            request.state.principal = who
+            request.state.user = who.name
+            request.state.via_token = who.via == "token"
             return await call_next(request)
 
     def _session_only(request: Request) -> str:
@@ -261,42 +363,153 @@ def register_auth(
 
     @app.get("/api/tokens")
     async def list_tokens(request: Request):
-        _session_only(request)
-        return await storage.list_api_tokens()
+        """Your tokens (an admin sees everyone's)."""
+        user = _session_only(request)
+        owner = None if principal(request).role == "admin" else user
+        return await storage.list_api_tokens(owner)
 
     @app.post("/api/tokens", status_code=201)
     async def create_token(body: _TokenRequest, request: Request):
         user = _session_only(request)
+        if body.scope == "write" and principal(request).role == "viewer":
+            raise HTTPException(403, "a viewer can create read tokens only")
         ttl = body.expires_in_days * 86400 if body.expires_in_days else None
         meta, token = await storage.create_api_token(body.name.strip(), body.scope, user, ttl)
+        await storage.audit(user, "token.created", meta["id"],
+                            {"name": meta["name"], "scope": body.scope})
         return {**meta, "token": token}  # the only time the token is ever returned
 
     @app.delete("/api/tokens/{token_id}", status_code=204)
     async def revoke_token(token_id: str, request: Request):
-        _session_only(request)
-        if not await storage.revoke_api_token(token_id):
+        user = _session_only(request)
+        owner = None if principal(request).role == "admin" else user
+        if not await storage.revoke_api_token(token_id, owner):
             raise HTTPException(404, "token not found")
+        await storage.audit(user, "token.revoked", token_id)
         return JSONResponse(status_code=204, content=None)
+
+    # ---- your account: password and sessions -------------------------------------- #
+    @app.post("/api/auth/password")
+    async def change_password(body: _PasswordChange, request: Request):
+        """Change your own password; your other sessions end, this one stays."""
+        user = _session_only(request)
+        key = _client_key(request)
+        _too_many(key)
+        if not await storage.verify_credentials(user, body.current_password):
+            throttle.failure(key)
+            raise HTTPException(403, "the current password is not correct")
+        _password_ok(body.new_password)
+        await storage.set_password(user, body.new_password,
+                                   keep_session_token=request.cookies.get(COOKIE_NAME))
+        await storage.audit(user, "account.password_changed", user)
+        return {"ok": True}
+
+    @app.get("/api/auth/sessions")
+    async def list_sessions(request: Request):
+        user = _session_only(request)
+        current = principal(request).session_id
+        return [{"id": s["id"], "created_at": s["created_at"], "expires_at": s["expires_at"],
+                 "client": s["client"], "user_agent": s["user_agent"],
+                 "current": s["id"] == current}
+                for s in await storage.list_sessions(user)]
+
+    @app.delete("/api/auth/sessions/{session_id}", status_code=204)
+    async def revoke_session(session_id: str, request: Request):
+        user = _session_only(request)
+        if not await storage.delete_session_by_id(user, session_id):
+            raise HTTPException(404, "session not found")
+        await storage.audit(user, "account.session_revoked", session_id)
+        return JSONResponse(status_code=204, content=None)
+
+    # ---- accounts (admin) ------------------------------------------------------------ #
+    def _admin(request: Request) -> str:
+        _session_only(request)
+        return require(request, "admin", session=True).name
+
+    @app.get("/api/users")
+    async def list_users(request: Request):
+        _admin(request)
+        return await storage.list_users()
+
+    @app.post("/api/users", status_code=201)
+    async def create_user(body: _NewUser, request: Request):
+        actor = _admin(request)
+        username = body.username.strip()
+        if not username:
+            raise HTTPException(400, "username is required")
+        _password_ok(body.password)
+        if not await storage.create_user(username, body.password, body.role):
+            raise HTTPException(409, "that username is taken")
+        await storage.audit(actor, "user.created", username, {"role": body.role})
+        return await storage.get_user(username)
+
+    @app.patch("/api/users/{username}")
+    async def change_role(username: str, body: _RoleChange, request: Request):
+        actor = _admin(request)
+        before = await storage.get_user(username)
+        if before is None:
+            raise HTTPException(404, "user not found")
+        try:
+            await storage.set_role(username, body.role)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        await storage.audit(actor, "user.role_changed", username,
+                            {"from": before["role"], "to": body.role})
+        return await storage.get_user(username)
+
+    @app.post("/api/users/{username}/password")
+    async def reset_password(username: str, body: _PasswordReset, request: Request):
+        """Set someone's password: all their sessions and API tokens end with it."""
+        actor = _admin(request)
+        _password_ok(body.password)
+        if not await storage.set_password(username, body.password):
+            raise HTTPException(404, "user not found")
+        revoked = await storage.revoke_user_tokens(username)
+        await storage.audit(actor, "user.password_reset", username,
+                            {"tokens_revoked": revoked})
+        return {"ok": True, "tokens_revoked": revoked}
+
+    @app.delete("/api/users/{username}", status_code=204)
+    async def delete_user(username: str, request: Request):
+        actor = _admin(request)
+        try:
+            deleted = await storage.delete_user(username)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+        if not deleted:
+            raise HTTPException(404, "user not found")
+        await storage.audit(actor, "user.deleted", username)
+        return JSONResponse(status_code=204, content=None)
+
+    @app.get("/api/audit")
+    async def audit_log(request: Request, limit: int = 200, before: int | None = None):
+        """Who did what, newest first (admin)."""
+        _admin(request)
+        return await storage.list_audit(max(1, min(limit, 1000)), before)
 
     @app.get("/api/auth/status")
     async def auth_status(request: Request):
-        user = await _current_user(request)
+        session = await _current_session(request)
+        user = session["username"] if session else None
         bearer = _bearer(request)
         api_token = await storage.get_api_token(bearer) if bearer else None
+        token_who = await _token_principal(bearer) if bearer else None
         setup_required = not await storage.has_admin()
-        authenticated = user is not None or api_token is not None or not require_auth
+        authenticated = user is not None or token_who is not None or not require_auth
         status = {
             "auth_enabled": require_auth,
             "authenticated": authenticated,
             "setup_required": setup_required,
             "setup_token_required": setup_required and setup_token is not None,
             "username": user,
+            "role": (session["role"] if session else token_who.role if token_who
+                     else "admin" if not require_auth else None),
         }
         if authenticated:  # the version only to whoever may use the instance
             status["version"] = __version__
         if bearer:  # lets `mcpsonar doctor` check a CLI token without changing anything
             status["token"] = (
-                {"valid": False} if api_token is None else
+                {"valid": False} if api_token is None or token_who is None else
                 {"valid": True, "scope": api_token["scope"],
                  "expires_at": api_token["expires_at"]}
             )
@@ -322,7 +535,8 @@ def register_auth(
             if not await storage.create_first_admin(username, body.password):
                 raise HTTPException(400, "an admin account already exists")
         throttle.reset(key)
-        return _start_session(request, await storage.create_session(username, MAX_AGE))
+        await storage.audit(username, "account.setup", username, {"role": "admin"})
+        return _start_session(request, await _new_session(request, username))
 
     @app.post("/api/auth/login")
     async def auth_login(creds: _Credentials, request: Request):
@@ -332,7 +546,9 @@ def register_auth(
             throttle.failure(key)
             raise HTTPException(401, "invalid username or password")
         throttle.reset(key)
-        return _start_session(request, await storage.create_session(creds.username, MAX_AGE))
+        await storage.audit(creds.username, "account.login", creds.username,
+                            {"client": _client_key(request)})
+        return _start_session(request, await _new_session(request, creds.username))
 
     @app.post("/api/auth/logout")
     async def auth_logout(request: Request):
