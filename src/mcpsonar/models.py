@@ -140,6 +140,15 @@ class CheckEvent(BaseModel):
         "tool changes, response drift). Entries with ongoing=true continue an episode an "
         "earlier check already reported. Empty on a nominal check.",
     )
+    previous_status: CheckStatus | None = Field(
+        default=None,
+        description="Status of the check before this one (None for a server's first check). "
+        "Set on live events (webhooks, notifications); not kept in the history.",
+    )
+    previous_status_since: datetime | None = Field(
+        default=None,
+        description="When the previous status began (the start of that run of checks).",
+    )
     latency_baseline_ms: float | None = Field(
         default=None,
         description="Median latency of recent healthy checks (None until enough history; "
@@ -233,11 +242,57 @@ class GenericWebhook(BaseModel):
         description="Also fire when a check detects something new (anomaly or tool change), "
         "whatever its status.",
     )
+    on_recovery: bool = Field(
+        default=True,
+        description="Also fire once when the server comes back up from a status in `on` "
+        "(the payload's previous_status says from what).",
+    )
+
+
+def _check_https_url(value: str) -> str:
+    _check_http_url(value)
+    if not value.lower().startswith("https://"):
+        raise ValueError("must be an https:// URL (it carries a secret)")
+    return value
+
+
+class _ChatWebhook(BaseModel):
+    """A chat notification: one message per change, not one per check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: Annotated[str, AfterValidator(_check_https_url)] = Field(
+        description="Incoming-webhook URL (a secret: masked in every output)."
+    )
+    on: list[CheckStatus] = Field(
+        default_factory=lambda: [CheckStatus.DOWN, CheckStatus.DEGRADED],
+        description="Notify when the server enters one of these statuses (once per change).",
+    )
+    on_anomaly: bool = Field(
+        default=True,
+        description="Notify new anomalies: tool changes, latency episodes, flapping, drift.",
+    )
+    on_recovery: bool = Field(
+        default=True,
+        description="Notify once when the server is back up, with how long it was out.",
+    )
+
+
+class SlackWebhook(_ChatWebhook):
+    """Slack incoming webhook (https://hooks.slack.com/services/...)."""
+
+    type: Literal["slack"] = "slack"
+
+
+class DiscordWebhook(_ChatWebhook):
+    """Discord channel webhook (https://discord.com/api/webhooks/...)."""
+
+    type: Literal["discord"] = "discord"
 
 
 # Discriminated union so the YAML `type:` picks the right model with clear errors.
 WebhookConfig = Annotated[
-    UptimeKumaWebhook | GenericWebhook,
+    UptimeKumaWebhook | GenericWebhook | SlackWebhook | DiscordWebhook,
     Field(discriminator="type"),
 ]
 

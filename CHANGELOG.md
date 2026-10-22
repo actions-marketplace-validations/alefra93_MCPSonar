@@ -27,6 +27,17 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
   - `docs/troubleshooting.md`, including a verified procedure for a forgotten admin
     password.
 - **`scan --no-color`**, like every other command.
+- **Slack and Discord notifications** (`type: slack` / `discord`): one message per change,
+  not per check.
+  - **What is sent:** down or degraded, back up with how long it was out, and new findings.
+    Episodes from 0.8 mean a slow period is one message.
+  - **Hostile text:** server-controlled text is stripped of invisible characters and
+    escaped: no `<!channel>` or `@everyone`, no disguised links. URLs must be https and
+    are masked.
+  - **Link to the instance:** `MCPSONAR_PUBLIC_URL` adds it to each message.
+- **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a
+  server is back up from an `on` status. `CheckEvent` gains `previous_status` and
+  `previous_status_since` (live events only).
 
 ### Changed
 - **The way back after a latency shift is found sooner.** After a reported shift, the next

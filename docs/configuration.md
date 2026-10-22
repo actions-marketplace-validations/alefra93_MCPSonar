@@ -78,6 +78,8 @@ servers:
     webhooks:
       - { type: uptime_kuma, push_url: "https://kuma.example.com/api/push/<token>" }
       - { type: generic, url: "https://hooks.example.com/x", "on": [down, degraded] }
+      - { type: slack, url: "https://hooks.slack.com/services/<...>" }
+      - { type: discord, url: "https://discord.com/api/webhooks/<...>" }
 ```
 
 ### Tool probes
@@ -110,6 +112,36 @@ of the last answer and reports a `response_drift` anomaly when it changes.
 - A drift is reported **once**, then the new shape becomes the reference. It is an
   observability signal: it does not change the server's status and needs no review, unlike
   tool-definition changes.
+
+### Notifications
+
+| `type` | Sends | When |
+|---|---|---|
+| `slack`, `discord` | A short message | Once per **change** (see below) |
+| `generic` | The raw `CheckEvent` JSON (POST) | Every check in an `on` status, every new anomaly, and once on recovery |
+| `uptime_kuma` | A push (GET) | Every check (Kuma keeps its own state) |
+
+Slack and Discord speak in changes, not checks:
+
+- the server **enters** a status listed in `on` (default `[down, degraded]`): one message,
+  with the reason. Staying down sends nothing more.
+- it is **back up** (`on_recovery`, default on): one message with how long it was out,
+  e.g. "calculator is back up after 12 min down".
+- something **new** was detected (`on_anomaly`, default on): a tool change, the first check
+  of a latency episode, a confirmed shift, flapping, a response drift. Checks that only
+  continue an episode (`ongoing`) are never re-notified.
+
+`degraded` includes an unreviewed tool change, so a rug pull produces one message when it
+happens and one when it is reviewed.
+
+Each message can link to your instance. Set `MCPSONAR_PUBLIC_URL` (e.g.
+`https://mcpsonar.example.com`) to add it.
+
+**Treat message text as untrusted.** Tool names, error messages and change details come
+from the monitored servers. MCPSonar removes invisible characters and line breaks and
+truncates them. For Slack it escapes `<`, `>` and `&` (no `<!channel>`, no disguised
+links). For Discord it escapes markdown and disables mentions. Webhook URLs must be
+`https://`; they are secrets, so they are masked in the API, the dashboard and the logs.
 
 ### stdio servers: the trust boundary
 

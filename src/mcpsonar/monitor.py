@@ -29,6 +29,7 @@ from .tooldefs import diff_tools, index_tools, renormalize
 async def process_check(storage: Storage, server_id: str, cfg: ServerConfig) -> CheckEvent:
     outcome = await run_check(server_id, cfg)
     event = outcome.event
+    await _set_previous_status(storage, event)
     found: list[Anomaly] = []
 
     if outcome.tools is not None:
@@ -48,6 +49,25 @@ async def process_check(storage: Storage, server_id: str, cfg: ServerConfig) -> 
     _apply_policy(event, cfg)
     await storage.record_check(event)
     return event
+
+
+STATUS_RUN_LIMIT = 500  # how far back to look for when the previous status began
+
+
+async def _set_previous_status(storage: Storage, event: CheckEvent) -> None:
+    """What the server was before this check, and since when: notifications speak in
+    changes ("down", "back up after 12 min"), not in individual checks."""
+    recent = await storage.get_history(event.server_id, limit=STATUS_RUN_LIMIT)
+    if not recent:
+        return
+    previous = recent[-1].status
+    since = recent[-1].checked_at
+    for past in reversed(recent):
+        if past.status != previous:
+            break
+        since = past.checked_at
+    event.previous_status = previous
+    event.previous_status_since = since
 
 
 async def _track_tool_changes(

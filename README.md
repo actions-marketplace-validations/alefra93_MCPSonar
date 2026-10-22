@@ -444,6 +444,9 @@ servers:
         url: "https://hooks.example.com/webhook"
         "on": ["down", "degraded"]
         on_anomaly: true         # also fire on anomalies / tool changes
+        on_recovery: true        # also fire once when it is back up
+      - type: slack              # or discord: one message per change, not per check
+        url: "https://hooks.slack.com/services/<...>"
 
   local-server:
     transport: "stdio"
@@ -458,9 +461,13 @@ servers:
 
 - **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
   detail (and any anomalies) in the message; `down` maps to down.
+- **Slack and Discord** — one message per change: down or degraded, back up (with how long
+  it was out), new findings. Never one per check; server-controlled text is escaped so it
+  can't ping a channel or disguise a link. See
+  [notifications](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md#notifications).
 - **Generic webhook** — POSTs the raw `CheckEvent` JSON for statuses in `on`, plus any check
-  that detected something new when `on_anomaly` is set (once per episode, plus the recovery);
-  retries 3× with backoff.
+  that detected something new when `on_anomaly` is set (once per episode), plus once when the
+  server is back up (`on_recovery`, with `previous_status`); retries 3× with backoff.
 - **Prometheus** — `GET /metrics`: `mcpsonar_up`, `mcpsonar_status_code`, `mcpsonar_latency_ms`,
   `mcpsonar_latency_baseline_ms`, `mcpsonar_latency_anomaly_score`, `mcpsonar_anomalies`,
   `mcpsonar_tool_changes_pending`, `mcpsonar_tool_risks`, `mcpsonar_tools_failed`,
