@@ -45,6 +45,23 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
   - **Tested** against a scripted SMTP server with a certificate generated for the test:
     STARTTLS, implicit TLS, a server without STARTTLS, an untrusted certificate and a
     blocked destination.
+- **Dashboard:**
+  - **Incidents in History:** each run of non-up checks with its start, worst status,
+    duration (or "ongoing") and first reason. It comes from the same function as
+    `mcpsonar history`, now shared with the insights API (`"incidents"`).
+  - **Filters:** down, degraded, to review, findings, latency, auth required, paused. Only
+    the filters that match something are shown, and the choice is remembered in the
+    browser.
+  - **When the API can't be reached:** a banner says so, keeps the last data, and retries.
+    A 401 goes to the login page. Before, the page stayed on "Loading…".
+  - **Phones:** no more horizontal scrolling at 375 px (the top bar, tiles and actions
+    wrap).
+  - **Accessibility:**
+    - every text color reaches WCAG AA (4.5:1) in both themes; the light theme's green,
+      amber, teal and faint text were below it;
+    - per-server buttons have accessible names ("History · calculator");
+    - the heartbeat strip has a text equivalent ("Last 40 checks: 37 up, 3 down");
+    - the tool count is a real button.
 - **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a
   server is back up from an `on` status. `CheckEvent` gains `previous_status` and
   `previous_status_since` (live events only).

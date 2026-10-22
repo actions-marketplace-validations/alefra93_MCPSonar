@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
+from .incidents import incidents
 from .lint import lint_tool
 from .loader import parse_config_text
 from .models import CheckStatus, MonitoredServer, ServerConfig, ServerInput, TransportType
@@ -174,7 +175,8 @@ def register_api(
         limit: int = Query(500, ge=1, le=MAX_HISTORY_LIMIT),
     ):
         """Anomaly-detection view of a window of history: learned baseline, the most
-        significant latency change point, and every anomaly reported in the window."""
+        significant latency change point, the incidents (runs of non-up checks) and every
+        anomaly reported in the window."""
         if await storage.get_server(server_id) is None:
             raise HTTPException(404, "server not found")
         since = (
@@ -200,6 +202,8 @@ def register_api(
                 "after_ms": cp.after_ms,
                 "t_stat": cp.t_stat,
             },
+            "incidents": incidents([{"status": e.status.value, "checked_at": e.checked_at,
+                                     "detail": e.detail} for e in events]),
             "anomalies": [
                 {"checked_at": e.checked_at.isoformat(), **a.model_dump(mode="json")}
                 for e in events

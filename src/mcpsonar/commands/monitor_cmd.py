@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from statistics import median
 from typing import Any
 
+from ..incidents import RANK, incidents
 from ..lint import SEVERITY_ORDER
 from ..output import (
     EXIT_ERROR,
@@ -27,7 +28,7 @@ from ..output import (
 from ._remote import Remote, RemoteError, add_remote_args, server_path
 
 STATUS_WORD = {"up": "HEALTHY", "degraded": "DEGRADED", "down": "DOWN"}
-_RANK = {"up": 0, "degraded": 1, "down": 2}
+_RANK = RANK
 
 
 def register(sub: Any) -> None:
@@ -328,25 +329,6 @@ def _medians(maps) -> dict[str, float]:
 def _percentile(values: list[float], q: float) -> float:
     ordered = sorted(values)
     return ordered[min(len(ordered) - 1, round(q * (len(ordered) - 1)))]
-
-
-def incidents(events: list[dict]) -> list[dict]:
-    """Runs of non-up checks: when each started, its worst status, and when it recovered."""
-    found: list[dict] = []
-    current: dict | None = None
-    for e in events:
-        if e["status"] != "up":
-            if current is None:
-                current = {"started": e["checked_at"], "worst": e["status"], "checks": 0,
-                           "recovered": None, "detail": e.get("detail")}
-                found.append(current)
-            current["checks"] += 1
-            if _RANK[e["status"]] > _RANK[current["worst"]]:
-                current["worst"] = e["status"]
-        elif current is not None:
-            current["recovered"] = e["checked_at"]
-            current = None
-    return found
 
 
 async def run_history(args: Any) -> int:

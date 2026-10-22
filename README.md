@@ -388,7 +388,12 @@ Everything is done from the dashboard or the JSON API — no restart required:
 - **Check** runs an on-demand check (analysed exactly like a scheduled one).
 - **Tools** lists the tools exposed right now, with any poisoning findings.
 - **Changes** shows tool changes vs. the pinned definitions; **Approve** trusts the new ones.
-- **History** shows uptime, latency, the learned baseline, shifts and anomalies (1h / 6h / 24h / all).
+- **History** shows uptime, latency, the learned baseline, shifts, anomalies and the
+  **incidents** (each outage from start to recovery, with its reason) (1h / 6h / 24h / all).
+- **Filters** narrow the list to what needs attention: down, degraded, changes to review,
+  findings, latency anomalies, auth required, paused.
+- Works on a phone, keeps text at WCAG AA contrast in both themes, labels every control for
+  screen readers, and says so when the API can't be reached instead of going blank.
 - **Export / Import** all servers as YAML. Exports mask credentials unless you ask for
   `GET /api/export?include_secrets=true`; for backups, copy the SQLite file
   ([docs/configuration.md](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md#backups)).

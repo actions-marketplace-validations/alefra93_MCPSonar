@@ -189,7 +189,7 @@ async def test_tool_changes_review_and_insights():
         assert everything[0]["reviewed"] is True
 
         ins = (await client.get(f"/api/servers/{sid}/insights")).json()
-        assert set(ins) == {"baseline", "change_point", "anomalies"}
+        assert set(ins) == {"baseline", "change_point", "incidents", "anomalies"}
         assert (await client.get("/api/servers/nope/insights")).status_code == 404
     finally:
         await client.aclose()

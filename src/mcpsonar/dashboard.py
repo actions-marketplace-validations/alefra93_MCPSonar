@@ -123,9 +123,9 @@ _PAGE = r"""<!doctype html>
   :root{
     --bg:#f1f4f9; --surface:#ffffff; --surface-2:#f6f9fc; --elev:#ffffff;
     --border:#e4e9f2; --border-strong:#d2dbe8;
-    --text:#0e1a2b; --muted:#5b6b83; --faint:#93a1b6;
-    --accent:#0d9488; --accent-strong:#0f766e; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
-    --up:#15a34a; --degraded:#d97706; --down:#dc2626; --pending:#6b7a92; --anom:#7c3aed;
+    --text:#0e1a2b; --muted:#5b6b83; --faint:#5f6c80;
+    --accent:#0f766e; --accent-strong:#115e59; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
+    --up:#15803d; --degraded:#b45309; --down:#c81e1e; --pending:#6b7a92; --anom:#7c3aed;
     --shadow:0 1px 2px rgba(14,26,43,.05), 0 10px 26px rgba(14,26,43,.06);
     --shadow-lg:0 24px 70px rgba(14,26,43,.24);
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
@@ -136,7 +136,7 @@ _PAGE = r"""<!doctype html>
     :root{
       --bg:#070c15; --surface:#0f1826; --surface-2:#131f30; --elev:#14202f;
       --border:#1f2b3e; --border-strong:#2c3c54;
-      --text:#e7eefb; --muted:#93a3bd; --faint:#5f708a;
+      --text:#e7eefb; --muted:#93a3bd; --faint:#8494ad;
       --accent:#2dd4bf; --accent-strong:#5eead4; --accent-ink:#04120f; --accent-soft:rgba(45,212,191,.12);
       --up:#34d399; --degraded:#fbbf24; --down:#f87171; --pending:#7c8aa5; --anom:#a78bfa;
       --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.38);
@@ -145,15 +145,15 @@ _PAGE = r"""<!doctype html>
   }
   :root[data-theme="light"]{
     --bg:#f1f4f9; --surface:#ffffff; --surface-2:#f6f9fc; --elev:#ffffff;
-    --border:#e4e9f2; --border-strong:#d2dbe8; --text:#0e1a2b; --muted:#5b6b83; --faint:#93a1b6;
-    --accent:#0d9488; --accent-strong:#0f766e; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
-    --up:#15a34a; --degraded:#d97706; --down:#dc2626; --pending:#6b7a92; --anom:#7c3aed;
+    --border:#e4e9f2; --border-strong:#d2dbe8; --text:#0e1a2b; --muted:#5b6b83; --faint:#5f6c80;
+    --accent:#0f766e; --accent-strong:#115e59; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
+    --up:#15803d; --degraded:#b45309; --down:#c81e1e; --pending:#6b7a92; --anom:#7c3aed;
     --shadow:0 1px 2px rgba(14,26,43,.05), 0 10px 26px rgba(14,26,43,.06);
     --shadow-lg:0 24px 70px rgba(14,26,43,.24);
   }
   :root[data-theme="dark"]{
     --bg:#070c15; --surface:#0f1826; --surface-2:#131f30; --elev:#14202f;
-    --border:#1f2b3e; --border-strong:#2c3c54; --text:#e7eefb; --muted:#93a3bd; --faint:#5f708a;
+    --border:#1f2b3e; --border-strong:#2c3c54; --text:#e7eefb; --muted:#93a3bd; --faint:#8494ad;
     --accent:#2dd4bf; --accent-strong:#5eead4; --accent-ink:#04120f; --accent-soft:rgba(45,212,191,.12);
     --up:#34d399; --degraded:#fbbf24; --down:#f87171; --pending:#7c8aa5; --anom:#a78bfa;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.38);
@@ -361,6 +361,41 @@ _PAGE = r"""<!doctype html>
   .aitem .t{color:var(--faint);font-family:var(--mono);font-size:11px;flex:none;}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px;}
   .legend i{display:inline-block;width:14px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle;}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  button.tlink{background:none;border:none;font:inherit;color:inherit;padding:0;}
+  .tlink:focus-visible,.badge:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);
+    outline-offset:2px;}
+  .filters{display:flex;flex-wrap:wrap;gap:6px;margin:0 2px 12px;}
+  .filters:empty{display:none;}
+  .chip{font:inherit;font-size:12px;border:1px solid var(--border-strong);background:var(--surface);
+    color:var(--muted);border-radius:999px;padding:4px 11px;cursor:pointer;}
+  .chip b{color:var(--text);font-weight:650;margin-left:5px;}
+  .chip.on{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-soft);}
+  .chip:disabled{opacity:.5;cursor:default;}
+  .apierr{display:none;margin:0 0 16px;padding:10px 14px;border-radius:10px;font-size:13px;
+    border:1px solid color-mix(in srgb,var(--down) 45%,transparent);
+    background:color-mix(in srgb,var(--down) 10%,transparent);}
+  .apierr.show{display:block;}
+  .inc{display:grid;grid-template-columns:auto auto auto 1fr;gap:6px 12px;font-size:12.5px;
+    align-items:baseline;}
+  .inc .t{font-family:var(--mono);font-size:11px;color:var(--faint);}
+  .inc .why{color:var(--muted);min-width:0;overflow-wrap:anywhere;}
+  @media (max-width:640px){
+    .topbar{flex-wrap:wrap;gap:8px;padding:10px 14px;}
+    .brand{flex-basis:100%;}
+    .topbar .btn{padding:6px 10px;font-size:12.5px;}
+    main{padding:16px 12px 60px;}
+    .summary{grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px;}
+    .tile{padding:9px 10px;}
+    .tile .k{font-size:9.5px;letter-spacing:.02em;}
+    .tile .v{font-size:19px;}
+    .chead{flex-wrap:wrap;}
+    .cfoot{flex-direction:column;align-items:flex-start;}
+    .acts{flex-wrap:wrap;}
+    .inc{grid-template-columns:auto auto 1fr;}
+    .inc .why{grid-column:1 / -1;}
+  }
 </style>
 </head>
 <body>
@@ -379,8 +414,10 @@ _PAGE = r"""<!doctype html>
 </div>
 
 <main>
+  <div class="apierr" id="apiErr" role="status" aria-live="polite"></div>
   <div class="summary" id="summary"></div>
   <div class="board-head"><h2>Monitored servers</h2><span class="hint">auto-refresh · 5s</span></div>
+  <div class="filters" id="filters" role="toolbar" aria-label="Filter servers"></div>
   <div class="cards" id="rows"><div class="empty">Loading…</div></div>
 </main>
 
@@ -537,7 +574,10 @@ async function api(method, path, body) {
   if (body !== undefined) { opt.headers["Content-Type"]="application/json"; opt.body=JSON.stringify(body); }
   const r = await fetch(path, opt);
   if (!r.ok) { let d; try { d = await r.json(); } catch(e){}
-    throw new Error(d && d.detail ? JSON.stringify(d.detail) : (r.status+" "+r.statusText)); }
+    const detail = d && d.detail;
+    const err = new Error(typeof detail === "string" ? detail
+      : detail ? JSON.stringify(detail) : (r.status+" "+r.statusText));
+    err.status = r.status; throw err; }
   return r.status === 204 ? null : r.json();
 }
 
@@ -558,7 +598,10 @@ function heartbeat(recent){
     const bg=a?`linear-gradient(${anom} 0 6px, ${sc(e.status)} 6px)`:sc(e.status);
     bars+=`<span class="hb" style="background:${bg}" `+
       `title="${e.status} · ${Math.round(e.latency_ms)}ms${a?" · "+kinds.join(", ").replace(/_/g," "):""}"></span>`; });
-  return `<div class="heartbeat">${bars}</div>`;
+  const n={up:0,degraded:0,down:0}; arr.forEach(e=>{ if(n[e.status]!=null) n[e.status]++; });
+  const label=arr.length?`Last ${arr.length} checks: ${n.up} up, ${n.degraded} degraded, ${n.down} down`
+    :"No checks yet";
+  return `<div class="heartbeat" role="img" aria-label="${label}">${bars}</div>`;
 }
 function pill(status){ return `<span class="pill ${status}"><span class="d"></span>${status}</span>`; }
 
@@ -578,17 +621,61 @@ function renderSummary(list){
 }
 
 let SERVERS = {};
+let LIST = [], LAST_OK = null;
+let FILTER = (()=>{ try { return localStorage.getItem("mcpsonar-filter") || "all"; } catch(e) { return "all"; } })();
+const st = s => s.event ? s.event.status : "pending";
+const FILTERS = [
+  ["all", "All", s => true],
+  ["down", "Down", s => st(s) === "down"],
+  ["degraded", "Degraded", s => st(s) === "degraded"],
+  ["review", "To review", s => s.event && s.event.tool_changes > 0],
+  ["findings", "Findings", s => s.event && s.event.tool_risks > 0],
+  ["latency", "Latency", s => (s.recent||[]).some(e => (e.anomalies||[]).some(k => k === "latency_spike" || k === "latency_shift"))],
+  ["auth", "Auth required", s => s.event && s.event.auth_required],
+  ["paused", "Paused", s => !s.enabled],
+];
+function setFilter(key){ FILTER = key; try { localStorage.setItem("mcpsonar-filter", key); } catch(e) {}
+  renderFilters(LIST); renderList(); }
+function renderFilters(list){
+  if (!list.length) { $("filters").innerHTML = ""; return; }
+  // Only the filters that would show something (plus "All" and the active one).
+  $("filters").innerHTML = FILTERS.map(([key, label, keep]) => {
+    const n = list.filter(keep).length, on = FILTER === key;
+    if (!n && key !== "all" && !on) return "";
+    return `<button class="chip${on?" on":""}" aria-pressed="${on}" `+
+      `onclick="setFilter('${key}')">${label}<b>${n}</b></button>`; }).join("");
+}
+function apiProblem(e){
+  if (e && e.status === 401) { location.href = "/login"; return; }
+  const why = e && e.status ? e.message : "network error";
+  const since = LAST_OK ? ` Showing the data from ${LAST_OK.toLocaleTimeString()}.` : "";
+  $("apiErr").innerHTML = `<b>Can't reach the MCPSonar API</b> (${esc(why)}). Retrying every 5 s.${since}`;
+  $("apiErr").classList.add("show");
+  $("sub").textContent = "connection problem";
+  if (!LAST_OK) $("rows").innerHTML = '<div class="empty">Couldn\'t load the servers yet. Retrying…</div>';
+}
 async function refresh() {
   let data;
-  try { data = await api("GET", "/api/status"); } catch(e) { return; }
+  try { data = await api("GET", "/api/status"); } catch(e) { apiProblem(e); return; }
+  LAST_OK = new Date(); $("apiErr").classList.remove("show");
   const ids = Object.keys(data);
-  const list = ids.map(id=>({id, ...data[id]}));
-  SERVERS = {}; list.forEach(s=>SERVERS[s.id]=s.name);
+  LIST = ids.map(id=>({id, ...data[id]}));
+  SERVERS = {}; LIST.forEach(s=>SERVERS[s.id]=s.name);
   $("sub").textContent = ids.length ? (ids.length+" server"+(ids.length===1?"":"s")+" · Live") : "No servers yet";
-  renderSummary(list);
+  renderSummary(LIST);
+  renderFilters(LIST);
+  renderList();
+}
+function renderList() {
   const tb = $("rows");
-  if (!ids.length) {
+  if (!LIST.length) {
     tb.innerHTML = '<div class="empty"><div class="big">🛰️</div>No servers yet.<br>Click <b>＋ Add server</b> to start monitoring an MCP.</div>';
+    return;
+  }
+  const keep = (FILTERS.find(f => f[0] === FILTER) || FILTERS[0])[2];
+  const list = LIST.filter(keep);
+  if (!list.length) {
+    tb.innerHTML = '<div class="empty">No server matches this filter. <button class="chip" onclick="setFilter(\'all\')">Show all</button></div>';
     return;
   }
   tb.innerHTML = list.map(s => {
@@ -614,7 +701,7 @@ async function refresh() {
     if (la && la.kind!=="tool_change") badges += `<button class="badge anom" onclick="openHistory('${s.id}')">📈 ${esc(la.detail)} <span class="when">· ${relTime(la.checked_at)}</span></button>`;
     return `<div class="card ${status}">
       <div class="chead">
-        <span class="sdot ${status}"></span>
+        <span class="sdot ${status}" aria-hidden="true"></span>
         <span class="cname">${esc(s.name)}${paused}</span>
         <span class="tport">${esc(s.transport)}</span>
         ${pill(status)}
@@ -627,17 +714,17 @@ async function refresh() {
           <span class="target">${esc(s.target)}</span>
           <span class="spec">spec ${spec}</span>
           ${baseline}
-          <span class="tlink" onclick="openTools('${s.id}')">🔧 <b>${tAvail}</b> tools${probed}</span>
+          <button class="tlink" onclick="openTools('${s.id}')" aria-label="Tools of ${esc(s.name)}">🔧 <b>${tAvail}</b> tools${probed}</button>
           <span>checked <b>${when}</b>${detail}</span>
         </div>
         <div class="acts">
-          <button class="act" onclick="openTools('${s.id}')">Tools</button>
-          <button class="act" onclick="openChanges('${s.id}')">Changes</button>
-          <button class="act" onclick="openHistory('${s.id}')">History</button>
-          <button class="act" onclick="checkNow('${s.id}')">Check</button>
-          <button class="act" onclick="editServer('${s.id}')">Edit</button>
-          <button class="act" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
-          <button class="act danger" onclick="del('${s.id}')">Delete</button>
+          <button class="act" aria-label="Tools · ${esc(s.name)}" onclick="openTools('${s.id}')">Tools</button>
+          <button class="act" aria-label="Changes · ${esc(s.name)}" onclick="openChanges('${s.id}')">Changes</button>
+          <button class="act" aria-label="History · ${esc(s.name)}" onclick="openHistory('${s.id}')">History</button>
+          <button class="act" aria-label="Check · ${esc(s.name)}" onclick="checkNow('${s.id}')">Check</button>
+          <button class="act" aria-label="Edit · ${esc(s.name)}" onclick="editServer('${s.id}')">Edit</button>
+          <button class="act" aria-label="${s.enabled?"Pause":"Resume"} · ${esc(s.name)}" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
+          <button class="act danger" aria-label="Delete · ${esc(s.name)}" onclick="del('${s.id}')">Delete</button>
         </div>
       </div>
     </div>`;
@@ -810,8 +897,25 @@ function renderCharts(hist, ins){
     </div>
     <div class="clabel">Status timeline (oldest → newest)</div>
     <svg viewBox="0 0 ${W} 14" width="100%" style="display:block">${strip}</svg>
+    <div class="clabel">Incidents in this window (${(ins.incidents||[]).length})</div>
+    ${renderIncidents(ins.incidents||[])}
     <div class="clabel">Anomalies in this window (${(ins.anomalies||[]).length})</div>
     ${alist?`<div class="alist">${alist}</div>`:'<p class="muted" style="font-size:12.5px;margin:4px 0">None — behaving like its usual self.</p>'}`;
+}
+
+function duration(fromIso, toIso){
+  const s = Math.max(0, (new Date(toIso) - new Date(fromIso)) / 1000);
+  if (s < 90) return Math.round(s) + " s";
+  const m = Math.round(s / 60); if (m < 90) return m + " min";
+  const h = Math.floor(m / 60), r = m % 60; return h + " h" + (r ? " " + r + " min" : "");
+}
+function renderIncidents(list){
+  if (!list.length) return '<p class="muted" style="font-size:12.5px;margin:4px 0">None — up for the whole window.</p>';
+  return `<div class="inc">${list.slice().reverse().map(i => {
+    const end = i.recovered ? `back up after <b>${duration(i.started, i.recovered)}</b>`
+      : `<b>ongoing</b> · ${duration(i.started, new Date().toISOString())} so far`;
+    return `<span class="t">${fmtTime(i.started)}</span>${pill(i.worst)}<span>${end} · ${i.checks} check${i.checks===1?"":"s"}</span>`+
+      `<span class="why">${esc(i.detail||"")}</span>`; }).join("")}</div>`;
 }
 
 /* tools */
