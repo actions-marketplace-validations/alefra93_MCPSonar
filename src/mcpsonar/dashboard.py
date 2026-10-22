@@ -67,7 +67,8 @@ def create_app(
             recent = await storage.get_history(s.id, limit=_HEARTBEAT_POINTS)
             last_anomaly = next(
                 (
-                    {"checked_at": e.checked_at.isoformat(), **e.anomalies[-1].model_dump()}
+                    {"checked_at": e.checked_at.isoformat(),
+                     **e.anomalies[-1].model_dump(mode="json")}
                     for e in reversed(recent)
                     if e.anomalies
                 ),
@@ -83,7 +84,9 @@ def create_app(
                     {
                         "status": e.status.value,
                         "latency_ms": e.latency_ms,
-                        "anomalies": [a.kind for a in e.anomalies],
+                        # new anomalies; "ongoing" ones continue an episode already counted
+                        "anomalies": [a.kind for a in e.anomalies if not a.ongoing],
+                        "ongoing": [a.kind for a in e.anomalies if a.ongoing],
                     }
                     for e in recent
                 ],
@@ -240,7 +243,7 @@ _PAGE = r"""<!doctype html>
 
   .heartbeat{display:flex;gap:2px;align-items:center;height:30px;width:100%;margin-top:12px;overflow:hidden;}
   .hb{flex:1 1 0;min-width:2px;height:26px;border-radius:2px;}
-  .hb.empty{background:var(--border);opacity:.55;height:13px;}
+  .hb.hb-pad{background:var(--border);opacity:.55;height:13px;}
 
   .cfoot{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap;
        margin-top:12px;padding-top:11px;border-top:1px dashed var(--border);}
@@ -547,13 +550,14 @@ function relTime(iso){
 function heartbeat(recent){
   const N=40, arr=(recent||[]).slice(-N), pad=N-arr.length;
   let bars="";
-  for(let i=0;i<pad;i++) bars+='<span class="hb empty"></span>';
+  for(let i=0;i<pad;i++) bars+='<span class="hb hb-pad"></span>';
   const anom=css("--anom");
   arr.forEach(e=>{
-    const a=(e.anomalies||[]).length;
+    const kinds=[...(e.anomalies||[]), ...(e.ongoing||[]).map(k=>k+" (ongoing)")];
+    const a=kinds.length;
     const bg=a?`linear-gradient(${anom} 0 6px, ${sc(e.status)} 6px)`:sc(e.status);
     bars+=`<span class="hb" style="background:${bg}" `+
-      `title="${e.status} · ${Math.round(e.latency_ms)}ms${a?" · "+e.anomalies.join(", ").replace(/_/g," "):""}"></span>`; });
+      `title="${e.status} · ${Math.round(e.latency_ms)}ms${a?" · "+kinds.join(", ").replace(/_/g," "):""}"></span>`; });
   return `<div class="heartbeat">${bars}</div>`;
 }
 function pill(status){ return `<span class="pill ${status}"><span class="d"></span>${status}</span>`; }

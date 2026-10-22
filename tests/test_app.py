@@ -88,3 +88,28 @@ async def test_api_status_reports_name_enabled_and_event():
         assert 'name="Beta"' in metrics
     await scheduler.stop()
     await storage.close()
+
+
+async def test_api_status_with_a_latency_shift_as_last_anomaly():
+    # v0.8.0 regression: a shift's `since` (a datetime) made /api/status answer 500, so the
+    # dashboard stayed on "Loading...".
+    from datetime import UTC, datetime
+
+    from mcpsonar.models import Anomaly
+
+    storage = await Storage.open(":memory:")
+    server = await storage.create_server("Gamma", ServerConfig(url="http://127.0.0.1:8000/mcp"))
+    since = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    await storage.record_check(CheckEvent(
+        server_id=server.id, status=CheckStatus.UP, latency_ms=160.0,
+        anomalies=[Anomaly(kind="latency_shift", detail="40ms → 160ms", since=since)],
+    ))
+    scheduler = Scheduler(storage, store := StateStore())
+    app = create_app(storage, store, scheduler, require_auth=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/status")
+        assert resp.status_code == 200
+        last = resp.json()[server.id]["last_anomaly"]
+        assert last["kind"] == "latency_shift" and last["since"].startswith("2026-01-01T12:00")
+    await scheduler.stop()
+    await storage.close()
