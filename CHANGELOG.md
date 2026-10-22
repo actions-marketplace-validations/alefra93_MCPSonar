@@ -26,9 +26,12 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 - **Quieter new databases:** creating a new database no longer logs each migration step at
   INFO; upgrading an existing one still does.
 
+## [0.8.1] — 2026-10-22
+
 ### Fixed
 - **Dashboard stuck on "Loading…" after a latency shift.** Since 0.8.0 a `latency_shift`
-  carries `since`; `/api/status` failed (500) for any server whose last anomaly was a shift.
+  carries `since`; `/api/status` failed (500) as soon as any server's last anomaly was a
+  shift, and the whole dashboard stopped loading. Upgrade if you run 0.8.0.
 - **Heartbeat strip of new servers looked empty:** the padding slots shared a CSS class with
   the empty-state box, so servers with fewer than 40 checks showed no bars.
 - **The "Anomalies" tile counts each episode once:** checks marked `ongoing` no longer add
