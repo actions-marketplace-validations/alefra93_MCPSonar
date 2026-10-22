@@ -26,7 +26,7 @@ from .commands import register_all
 from .commands.version import version_line
 from .dashboard import create_app
 from .loader import ConfigError, load_config
-from .output import EXIT_INTERRUPTED
+from .output import EXIT_INTERRUPTED, add_format_args, output_for
 from .scheduler import Scheduler
 from .state import StateStore
 from .storage import Storage, StorageError
@@ -261,8 +261,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     demo = sub.add_parser(
         "demo",
-        help="Run the dashboard against four scripted demo MCP servers (no setup).",
+        help="Run the dashboard against four scripted demo MCP servers (no setup), or a "
+        "deterministic step-by-step scenario in the terminal (--scenario).",
+        description="Without --scenario: the dashboard against four demo servers whose story "
+        "unfolds on timers (~5 min). With --scenario: a deterministic story told step by step "
+        "in the terminal, on the real engine; exit 1 if MCPSonar did not react as expected.",
     )
+    demo.add_argument("--scenario",
+                      choices=["healthy", "poisoning", "rug-pull", "latency-regression",
+                               "ci-gate", "all"],
+                      help="Run this scenario (or all of them) instead of the dashboard tour.")
+    demo.add_argument("--auto", action="store_true",
+                      help="With --scenario: don't wait for Enter between steps.")
+    add_format_args(demo)
     demo.add_argument("--port", type=int, default=8675)
     demo.add_argument("--interval", type=int, default=3,
                       help="Check interval in seconds (default 3: the story takes ~5 min).")
@@ -278,7 +289,8 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):  # Windows consoles default to a legacy codepage
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = _build_parser().parse_args(argv)
-    long_running = args.command in ("run", "demo")
+    long_running = args.command == "run" or (args.command == "demo"
+                                              and not getattr(args, "scenario", None))
     # The server commands log their activity; one-shot commands keep stderr for
     # diagnostics only, so their output stays clean in scripts and CI.
     logging.basicConfig(
@@ -300,6 +312,14 @@ def main(argv: list[str] | None = None) -> int:
         try:
             result = handler(args)
             return asyncio.run(result) if inspect.iscoroutine(result) else result
+        except KeyboardInterrupt:
+            return EXIT_INTERRUPTED
+
+    if args.command == "demo" and args.scenario:
+        from .scenarios import run as run_scenarios
+
+        try:
+            return asyncio.run(run_scenarios(args, output_for(args)))
         except KeyboardInterrupt:
             return EXIT_INTERRUPTED
 

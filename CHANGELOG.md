@@ -5,6 +5,24 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
 ## [Unreleased]
 
+### Added
+- **`mcpsonar demo --scenario NAME`**: deterministic demos told step by step in the
+  terminal: `healthy`, `poisoning`, `rug-pull`, `latency-regression`, `ci-gate`, or `all`.
+  - **Real engine:** the local demo servers are steered before each step (latency, clean or
+    poisoned tools) and the real engine runs on them: the monitor's check pipeline, the
+    `risks` view, `scan` with a lockfile and SARIF.
+  - **Self-checking:** each scenario asserts MCPSonar's reaction; exit 1 if one does not
+    behave, so `--scenario all --auto` is an end-to-end smoke test (run by the test suite).
+  - **Pacing:** Enter between steps on a terminal; `--auto` for no pauses; `--json`.
+
+### Changed
+- **The way back after a latency shift is found sooner.** After a reported shift, the next
+  shift is searched relative to the new level. Before, a short regression followed by a fix
+  could hide the return to normal, because the strongest split of the window was the
+  already-reported first change.
+- **Quieter new databases:** creating a new database no longer logs each migration step at
+  INFO; upgrading an existing one still does.
+
 ### Fixed
 - History is ordered deterministically when two checks share a timestamp (coarse clocks
   on Windows): insertion order wins. A test depending on it failed intermittently on the

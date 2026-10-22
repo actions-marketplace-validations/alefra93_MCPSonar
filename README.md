@@ -44,6 +44,10 @@ mcpsonar demo
 Or, with [uv](https://docs.astral.sh/uv/), without installing anything permanently:
 `uvx --from git+https://github.com/alefra93/MCPSonar.git mcpsonar demo`.
 
+Prefer the terminal, or presenting it? `mcpsonar demo --scenario rug-pull` tells the same
+stories step by step, deterministic and on the real engine (`healthy`, `poisoning`, `rug-pull`,
+`latency-regression`, `ci-gate`, or `all`).
+
 The dashboard opens against **four scripted MCP servers**. Within a few minutes you'll watch:
 
 | Server | What happens | What MCPSonar does |

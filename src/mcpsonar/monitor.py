@@ -180,7 +180,11 @@ async def _detect_anomalies(
         healthy = [e for e in history if e.status != CheckStatus.DOWN]
         found += _latency_episode(event, healthy, _baseline_pool(healthy), cfg)
 
-        window = healthy[-(ad.SHIFT_WINDOW - 1):] + [event]
+        # After a reported shift, look for the next one relative to the new level: the
+        # strongest single split of a window spanning both changes is often the old one.
+        shift = _last_shift(healthy)
+        since = [e for e in healthy if shift is None or e.checked_at >= shift[1]]
+        window = since[-(ad.SHIFT_WINDOW - 1):] + [event]
         cp = ad.find_change_point([e.latency_ms for e in window])
         if cp is not None and len(window) - cp.index <= ad.SHIFT_MAX_AGE:
             changed_at = window[cp.index].checked_at

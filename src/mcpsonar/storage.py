@@ -235,8 +235,11 @@ async def migrate(conn: aiosqlite.Connection, path: Path | None = None) -> int:
     if not pending:
         return found
     cur = await conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'")
-    if path is not None and (await cur.fetchone())[0]:
+    existing = bool((await cur.fetchone())[0])
+    if path is not None and existing:
         logger.info("database backed up to %s before migrating", await _backup(conn, path, found))
+    # A new database is simply created: only an upgrade is worth an INFO line.
+    log = logger.info if existing else logger.debug
     for version, description, step in pending:
         await conn.execute("BEGIN IMMEDIATE")
         try:
@@ -246,7 +249,7 @@ async def migrate(conn: aiosqlite.Connection, path: Path | None = None) -> int:
             await conn.execute("ROLLBACK")
             raise
         await conn.execute("COMMIT")
-        logger.info("database schema migrated to version %d: %s", version, description)
+        log("database schema migrated to version %d: %s", version, description)
     return found
 
 
