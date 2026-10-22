@@ -67,7 +67,8 @@ def create_app(
             recent = await storage.get_history(s.id, limit=_HEARTBEAT_POINTS)
             last_anomaly = next(
                 (
-                    {"checked_at": e.checked_at.isoformat(), **e.anomalies[-1].model_dump()}
+                    {"checked_at": e.checked_at.isoformat(),
+                     **e.anomalies[-1].model_dump(mode="json")}
                     for e in reversed(recent)
                     if e.anomalies
                 ),
