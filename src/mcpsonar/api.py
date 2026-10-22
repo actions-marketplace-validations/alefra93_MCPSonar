@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from . import anomaly as ad
 from .auth import principal, require
@@ -268,6 +269,27 @@ def register_api(
         )
         events = await storage.get_history(server_id, since=since, limit=limit)
         return [e.model_dump(mode="json") for e in events]
+
+    @app.get("/api/trust-report")
+    async def trust_report(
+        server: Annotated[list[str] | None, Query(description="Server id(s); default: all.")]
+        = None,
+        days: int = Query(30, ge=1, le=366),
+        format: str = Query("html", pattern="^(html|json)$"),
+    ):
+        """The Trust Report: availability, pinned tool definitions, every tool change and who
+        approved it, and the (heuristic) findings, for one server, several, or all."""
+        from .trust import build, render_html
+
+        try:
+            report = await build(storage, server, days)
+        except KeyError as exc:
+            raise HTTPException(404, f"unknown server: {exc.args[0]}") from None
+        if format == "json":
+            return report
+        stamp = report["generated_at"][:10]
+        return HTMLResponse(render_html(report), headers={
+            "Content-Disposition": f'inline; filename="mcpsonar-trust-report-{stamp}.html"'})
 
     @app.get("/api/export")
     async def export_yaml(request: Request, include_secrets: bool = False) -> PlainTextResponse:

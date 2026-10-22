@@ -303,3 +303,17 @@ async def test_history_reports_phase_and_tool_medians(instance, capsys, monkeypa
     assert code == 0 and {"handshake", "discovery", "probes", "total"} <= set(phases)
     code, out, _ = await cli(capsys, monkeypatch, instance["read"], "history", "calculator")
     assert "phases   handshake" in out
+
+
+async def test_trust_report_with_a_read_token(instance, capsys, monkeypatch, tmp_path):
+    await cli(capsys, monkeypatch, instance["write"], "check", "remote-api", "--fail-on", "never")
+    target = tmp_path / "trust.html"
+    code, out, err = await cli(capsys, monkeypatch, instance["read"], "trust-report",
+                               "remote-api", "--last", "7d", "-o", str(target))
+    assert code == 0, err
+    assert "1 server(s) written" in out
+    page = target.read_text(encoding="utf-8")
+    assert "Trust report · remote-api" in page and "not a security certification" in page
+    assert SECRET not in page  # the server's credentials never reach the report
+    code, out, _ = await cli(capsys, monkeypatch, instance["read"], "trust-report", "--json")
+    assert code == 0 and json.loads(out)["kind"] == "trust_report"

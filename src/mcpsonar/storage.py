@@ -490,7 +490,26 @@ class Storage:
             )
         return cur.rowcount
 
+    async def status_rows(self, server_id: str, since: datetime) -> list[dict]:
+        """A lean view of the checks since ``since``, oldest first: what reports need
+        (status, latency, reason, anomalies) without building a full event per check."""
+        cur = await self._read.execute(
+            "SELECT checked_at, status, latency_ms, detail, anomalies_json FROM checks "
+            "WHERE server_id = ? AND checked_at >= ? ORDER BY checked_at ASC, id ASC",
+            (server_id, since.isoformat()))
+        return [{"checked_at": r["checked_at"], "status": r["status"],
+                 "latency_ms": r["latency_ms"], "detail": r["detail"],
+                 "anomalies": json.loads(r["anomalies_json"]) if r["anomalies_json"] else []}
+                for r in await cur.fetchall()]
+
     # ---- tool pinning (rug-pull detection) ---------------------------------- #
+    async def tool_baseline_since(self, server_id: str) -> str | None:
+        """When this server's tools were first pinned (None: never listed yet)."""
+        cur = await self._read.execute(
+            "SELECT established_at FROM tool_baselines WHERE server_id = ?", (server_id,))
+        row = await cur.fetchone()
+        return row["established_at"] if row else None
+
     async def get_tool_snapshot(self, server_id: str) -> dict[str, dict] | None:
         """Last-seen ``{tool name: normalized definition}``, or None if no baseline yet."""
         cur = await self._read.execute(
@@ -789,6 +808,16 @@ class Storage:
                 "VALUES (?, ?, ?, ?, ?)",
                 (datetime.now(UTC).isoformat(), actor, action, target,
                  json.dumps(detail, sort_keys=True) if detail else None))
+
+    async def list_audit_for(self, target: str, action: str) -> list[dict]:
+        """Every entry about one target (e.g. a server's approvals), oldest first."""
+        cur = await self._read.execute(
+            "SELECT * FROM audit_log WHERE target = ? AND action = ? ORDER BY id ASC",
+            (target, action))
+        return [{"id": r["id"], "at": r["at"], "actor": r["actor"], "action": r["action"],
+                 "target": r["target"],
+                 "detail": json.loads(r["detail_json"]) if r["detail_json"] else None}
+                for r in await cur.fetchall()]
 
     async def list_audit(self, limit: int = 200, before_id: int | None = None) -> list[dict]:
         """Newest first; ``before_id`` pages further back."""

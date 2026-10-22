@@ -390,6 +390,11 @@ Everything is done from the dashboard or the JSON API — no restart required:
 - **Changes** shows tool changes vs. the pinned definitions; **Approve** trusts the new ones.
 - **History** shows uptime, latency, the learned baseline, shifts, anomalies and the
   **incidents** (each outage from start to recovery, with its reason) (1h / 6h / 24h / all).
+- **Trust report** (top bar, or History → per server): one printable page per server or for
+  the fleet with availability, the pinned tool definitions and their fingerprints, every
+  tool change and **who approved it**, and the findings labeled as heuristics. It records
+  observations; it is not a certification. Also `mcpsonar trust-report` and
+  `GET /api/trust-report?format=json`.
 - **Accounts and roles** (viewer, operator, admin): each person sees only the controls their
   role allows. **Account** changes your password and signs out other sessions. Admins get
   **Users** and the **Audit** log (who approved which tool change).

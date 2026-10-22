@@ -79,6 +79,16 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
     out.
   - **Users** (admins): add accounts, change roles, reset passwords, delete accounts.
   - **Audit** (admins): the log, newest first, with what each approval covered.
+- **Trust Report**, for one server, several or the whole instance, over N days (default 30):
+  - **Contents:** availability (share of checks answered, incidents, time not up, the
+    longest incident, latency p50/p95); the pinned tool definitions with SHA-256
+    fingerprints; every tool change in the window with its review status and **who
+    approved it, when** (audit log); the lint findings on the current tools, labeled as
+    heuristics.
+  - **Format:** one self-contained page (no script, no external resource), styled for
+    printing to PDF. It gives no score and no verdict: it records observations.
+  - **Where:** `GET /api/trust-report` (html or json, any role), the dashboard (top bar,
+    History), and `mcpsonar trust-report` (renders the instance's JSON with the same code).
 - **Schema version 4:** user roles, session ids, the audit log. It is migrated
   automatically, with a backup.
 - **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a

@@ -424,6 +424,8 @@ _PAGE = r"""<!doctype html>
   </div>
   <span class="whoami" id="whoami"></span>
   <button class="btn icon" id="themeBtn" title="Toggle theme" onclick="toggleTheme()">🌙</button>
+  <button class="btn" onclick="window.open('/api/trust-report?days=30','_blank','noopener')"
+    title="Availability, tool changes and who approved them, findings: last 30 days">Trust report</button>
   <button class="btn" onclick="location.href='/api/export'">Export</button>
   <button class="btn need-operator" onclick="openImport()">Import</button>
   <button class="btn primary need-operator" onclick="openForm()">＋ Add server</button>
@@ -984,6 +986,7 @@ function renderCharts(hist, ins){
     </div>
     <div class="clabel">Status timeline (oldest → newest)</div>
     <svg viewBox="0 0 ${W} 14" width="100%" style="display:block">${strip}</svg>
+    <p style="margin:10px 0 0;font-size:12.5px"><a href="/api/trust-report?days=30&server=${encodeURIComponent(histId)}" target="_blank" rel="noopener">Trust report for this server (30 days) →</a></p>
     <div class="clabel">Incidents in this window (${(ins.incidents||[]).length})</div>
     ${renderIncidents(ins.incidents||[])}
     <div class="clabel">Anomalies in this window (${(ins.anomalies||[]).length})</div>
