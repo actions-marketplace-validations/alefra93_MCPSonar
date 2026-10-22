@@ -229,6 +229,7 @@ async def run_scan(args: Any) -> int:
     if args.json or getattr(args, "format", "text") == "json":
         print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
     else:
-        color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+        color = (sys.stdout.isatty() and "NO_COLOR" not in os.environ
+                 and not getattr(args, "no_color", False))
         print(render(result, args.fail_on, color))
     return exit_code(result, args.fail_on)

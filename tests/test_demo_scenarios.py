@@ -58,3 +58,27 @@ def test_busy_dashboard_port_fails_fast(capsys):
         code = main(["demo", "--scenario", "healthy", "--auto", "--dashboard", "--no-browser",
                      "--port", str(base)])
     assert code == 2 and "already in use" in capsys.readouterr().err
+
+
+async def test_demo_servers_take_control_from_the_query_string():
+    # `mcpsonar demo --servers` prints one-line curl commands: the query-string form.
+    import asyncio
+
+    import httpx2
+
+    from mcpsonar.demo import scenario_servers, spawn
+    from mcpsonar.models import ServerConfig
+    from mcpsonar.services import inspect_server
+
+    base = _free_base() + 40
+    proc = await asyncio.to_thread(spawn, base, 1.0, True)
+    try:
+        calc = next(d for d in scenario_servers(base) if d.key == "calculator")
+        async with httpx2.AsyncClient() as client:
+            r = await client.post(f"http://127.0.0.1:{calc.port}/__demo?tools=poisoned")
+        assert r.status_code == 204
+        found = await inspect_server(ServerConfig(url=calc.url), "calculator")
+        assert "sidenote" in found.tools["add"]["inputSchema"]["properties"]
+    finally:
+        proc.terminate()
+        await asyncio.to_thread(proc.wait, 10)

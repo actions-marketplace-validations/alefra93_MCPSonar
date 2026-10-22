@@ -36,6 +36,11 @@ Action** to gate CI on it.
 
 ## Try it in 60 seconds
 
+> **New here?** The [quickstart](https://github.com/alefra93/MCPSonar/blob/main/docs/quickstart.md)
+> walks you from install to a monitored server, a reviewed rug pull and a CI gate in ten
+> minutes, all local. Questions: [FAQ](https://github.com/alefra93/MCPSonar/blob/main/docs/faq.md) ·
+> [troubleshooting](https://github.com/alefra93/MCPSonar/blob/main/docs/troubleshooting.md).
+
 ```bash
 pip install git+https://github.com/alefra93/MCPSonar.git
 mcpsonar demo

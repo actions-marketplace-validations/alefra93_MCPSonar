@@ -254,6 +254,8 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--json", action="store_true", help="Machine-readable output.")
     scan.add_argument("--format", choices=["text", "json"], default="text",
                       help="Output format (--json is the same as --format json).")
+    scan.add_argument("--no-color", action="store_true",
+                      help="Disable colors (also: NO_COLOR environment variable).")
     scan.add_argument("--timeout", type=float, default=20.0, help="Seconds (default 20).")
     scan.add_argument("--sarif", metavar="FILE",
                       help="Also write the results as SARIF 2.1.0 (GitHub code scanning). "
@@ -273,6 +275,9 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="Run this scenario (or all of them) instead of the dashboard tour.")
     demo.add_argument("--auto", action="store_true",
                       help="With --scenario: don't wait for Enter between steps.")
+    demo.add_argument("--servers", action="store_true",
+                      help="Only serve the three demo MCP servers (on --port + 40..42) and "
+                      "print their URLs, to try scan, monitoring and CI against them.")
     demo.add_argument("--dashboard", action="store_true",
                       help="With --scenario: also serve the dashboard on --port; it follows "
                       "every step live.")
@@ -317,6 +322,12 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(result) if inspect.iscoroutine(result) else result
         except KeyboardInterrupt:
             return EXIT_INTERRUPTED
+
+    if args.command == "demo" and args.servers:
+        from .demo import serve_foreground
+
+        serve_foreground(args.port + 40)
+        return 0
 
     if args.command == "demo" and args.scenario:
         from .scenarios import run as run_scenarios

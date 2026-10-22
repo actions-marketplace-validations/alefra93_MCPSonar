@@ -12,8 +12,10 @@ at them and opens the dashboard:
   swapped for a poisoned version (hidden instructions + a new ``sidenote`` parameter).
 
 ``mcpsonar demo --scenario`` uses the same servers without timers or randomness: each one
-accepts ``POST /__demo`` (``{"latency_ms": 160, "tools": "poisoned"}``) so a scenario sets
-exactly what happens before each check (see :mod:`mcpsonar.scenarios`). The control
+accepts ``POST /__demo`` (``{"latency_ms": 160, "tools": "poisoned"}``, or the same as a
+query string: ``/__demo?tools=poisoned``) so a scenario sets exactly what happens before
+each check (see :mod:`mcpsonar.scenarios`). ``mcpsonar demo --servers`` serves the same
+servers on their own, to practise ``scan``, monitoring and CI against them. The control
 endpoint exists only on these local demo servers.
 
 Everything here is demo/test scaffolding; nothing in the monitor depends on it.
@@ -33,6 +35,7 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl
 
 import uvicorn
 from mcp.server import MCPServer
@@ -62,7 +65,7 @@ class _Behaviour:
         self.server = server
         self.rnd = random.Random(hash(personality.latency_ms))
 
-    async def _control(self, receive, send) -> None:
+    async def _control(self, scope, receive, send) -> None:
         body = b""
         while True:
             message = await receive()
@@ -70,6 +73,8 @@ class _Behaviour:
             if not message.get("more_body"):
                 break
         state = json.loads(body or b"{}")
+        # Query parameters too, so one curl line works in every shell.
+        state.update(parse_qsl(scope.get("query_string", b"").decode("latin-1")))
         if "latency_ms" in state:
             self.p.latency_ms = float(state["latency_ms"])
         if "fail_prob" in state:
@@ -91,7 +96,7 @@ class _Behaviour:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and scope["path"] == "/__demo" and scope["method"] == "POST":
-            await self._control(receive, send)
+            await self._control(scope, receive, send)
             return
         if scope["type"] == "http" and scope["method"] == "POST":
             await asyncio.sleep(self._latency() / 1000)
@@ -303,6 +308,25 @@ def spawn(base_port: int, interval_s: float, scenarios: bool = False) -> subproc
                 raise RuntimeError(f"demo servers failed to start (port {d.port} busy?)")
             time.sleep(0.2)
     return proc
+
+
+def serve_foreground(base_port: int, print_fn: Any = print) -> None:
+    """``mcpsonar demo --servers``: the scenario cast on its own, until Ctrl+C."""
+    cast = scenario_servers(base_port)
+    print_fn("MCPSonar demo servers (local only; Ctrl+C to stop):")
+    for d in cast:
+        print_fn(f"  {d.name.ljust(12)} {d.url}")
+    calc = next(d for d in cast if d.key == "calculator")
+    docs = next(d for d in cast if d.key == "docs")
+    control = f"http://127.0.0.1:{calc.port}/__demo"
+    print_fn("")
+    print_fn("Change what they do, from another terminal (curl.exe in PowerShell):")
+    print_fn(f'  rug pull:     curl -X POST "{control}?tools=poisoned"')
+    print_fn(f'  undo it:      curl -X POST "{control}?tools=clean"')
+    print_fn(f'  slow it down: curl -X POST "http://127.0.0.1:{docs.port}/__demo?latency_ms=400"')
+    logging.basicConfig(level=logging.WARNING)
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(run_demo_servers(cast))
 
 
 def main() -> None:

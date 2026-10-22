@@ -54,6 +54,9 @@ uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.1/mcpsona
 
 ## Documentation
 
+- [Quickstart](quickstart.md): install, scan, monitor, review a rug pull and gate CI in ten
+  minutes, all local.
+- [FAQ](faq.md) and [troubleshooting](troubleshooting.md).
 - [Demo](demo/README.md): step-by-step scenarios for talks and articles, and a
   [speaker guide](demo/speaker-guide.md).
 - [Command line](cli.md): every command, local and remote mode, exit codes, completion.

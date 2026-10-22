@@ -17,6 +17,16 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
   - **`--dashboard`:** the dashboard follows every step live (checks go through the
     scheduler, like "Check now").
   - **Guides:** `docs/demo/`: overview, scenarios, speaker guide, troubleshooting.
+- **`mcpsonar demo --servers`**: only the three demo MCP servers, with their URLs and
+  one-line `curl` commands to rug-pull or slow them down. The control endpoint also accepts
+  a query string (`/__demo?tools=poisoned`), so the same line works in every shell.
+- **Onboarding docs:**
+  - `docs/quickstart.md`: install, scan and pin, monitor, rug pull, review, CI gate and
+    doctor in about ten minutes, all local, every command run while writing it;
+  - `docs/faq.md`;
+  - `docs/troubleshooting.md`, including a verified procedure for a forgotten admin
+    password.
+- **`scan --no-color`**, like every other command.
 
 ### Changed
 - **The way back after a latency shift is found sooner.** After a reported shift, the next

@@ -24,7 +24,7 @@ built yet).
 | Command | Status | Mode | What it does |
 |---|---|---|---|
 | `run` | IMPLEMENTED | — | The monitor: dashboard, API, `/metrics`, scheduled checks. |
-| `demo` | IMPLEMENTED | — | Dashboard against four scripted local demo servers. `--scenario healthy\|poisoning\|rug-pull\|latency-regression\|ci-gate\|all`: a deterministic story told step by step in the terminal, on the real engine (Enter between steps, `--auto` without pauses, `--json`). Exit 1 if MCPSonar did not react as expected, so `--scenario all --auto` is also a smoke test. |
+| `demo` | IMPLEMENTED | — | Dashboard against four scripted local demo servers. `--scenario healthy\|poisoning\|rug-pull\|latency-regression\|ci-gate\|all`: a deterministic story told step by step in the terminal, on the real engine (Enter between steps, `--auto` without pauses, `--json`). Exit 1 if MCPSonar did not react as expected, so `--scenario all --auto` is also a smoke test. `--servers`: only the three demo servers (`--port`+40..42), with one-line `curl` commands to rug-pull or slow them; used by the [quickstart](quickstart.md). |
 | `scan TARGET` | IMPLEMENTED | local | CI gate: lint + lockfile drift, exit 0/1/2 (`--fail-on`, `--lock`). |
 | `tools TARGET` | IMPLEMENTED | local | Every tool (all pages) with risk indicators; `--detail` for schemas. |
 | `risks TARGET` | IMPLEMENTED | local | Findings explained: rule, severity, evidence, what to review. |
