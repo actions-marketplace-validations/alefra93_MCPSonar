@@ -67,9 +67,13 @@ gives one notification, plus one when it recovers.
 
 ## Can several people use it?
 
-Today there is one admin account, plus API tokens (read or write) for the CLI and scripts.
-Roles (admin, operator, viewer) are planned for v0.9; see the
-[roadmap](product-roadmap.md).
+Yes. An admin adds accounts with one of three roles:
+- **viewer** sees everything;
+- **operator** also checks servers, manages HTTP servers and approves tool changes;
+- **admin** also manages stdio servers, accounts and exports with secrets.
+
+Who approved which tool change is kept in an append-only audit log. See
+[accounts and roles](configuration.md#accounts-and-roles).
 
 ## Is it on PyPI?
 

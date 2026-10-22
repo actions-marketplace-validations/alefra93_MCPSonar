@@ -27,7 +27,10 @@ anything and without printing a credential. For the demo, see
 - **The setup link is gone.** As long as no admin exists, MCPSonar prints a new setup link
   every time it starts. Restart it and read the log (`docker compose logs mcpsonar`). To
   choose the token yourself, set `MCPSONAR_SETUP_TOKEN`.
-- **Forgotten admin password.** There is no reset by email. With MCPSonar **stopped**:
+- **Forgotten password.** There is no reset by email.
+  - **If another admin exists:** they can set a new password from **Users → Reset password**.
+    That also ends the account's sessions and API tokens.
+  - **For the only admin,** with MCPSonar **stopped**:
 
   ```bash
   # back up first
@@ -36,8 +39,9 @@ anything and without printing a credential. For the demo, see
   ```
 
   Start it again and open the new setup link from the log; servers and history are kept.
-  API tokens stay valid. If you are resetting because the account may be compromised, also
-  run `DELETE FROM api_tokens` and create new tokens.
+  Other accounts are deleted too, and their API tokens stop working. If you recreate an
+  account with the same name, its old tokens work again. So if you reset because an account
+  may be compromised, also run `DELETE FROM api_tokens` and create new tokens.
 - **Logged out right after logging in, behind a proxy.** See
   [reverse proxy and HTTPS](configuration.md#reverse-proxy-and-https) (`--allowed-host`,
   `--trusted-origin`, `--cookie-secure`).

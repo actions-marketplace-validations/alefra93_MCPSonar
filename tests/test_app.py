@@ -139,3 +139,21 @@ async def test_insights_report_incidents_from_start_to_recovery():
     assert 'id="filters"' in page and 'id="apiErr"' in page and "renderIncidents" in page
     await scheduler.stop()
     await storage.close()
+
+
+async def test_dashboard_has_role_aware_controls_and_team_dialogs():
+    storage = await Storage.open(":memory:")
+    scheduler = Scheduler(storage, store := StateStore())
+    app = create_app(storage, store, scheduler, require_auth=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        page = (await client.get("/")).text
+        status = (await client.get("/api/auth/status")).json()
+    # without a login everyone is admin, so every control shows; with one, CSS hides by role
+    assert status["role"] == "admin"
+    assert "body.role-viewer .need-operator" in page and "body:not(.role-admin) .need-admin" in page
+    for marker in ('id="accountOverlay"', 'id="usersOverlay"', 'id="auditOverlay"',
+                   'class="btn primary need-operator" onclick="openForm()"',
+                   "admins only"):
+        assert marker in page, marker
+    await scheduler.stop()
+    await storage.close()

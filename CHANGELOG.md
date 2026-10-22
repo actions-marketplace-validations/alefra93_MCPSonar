@@ -72,6 +72,13 @@ is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 - **Audit log** (`/api/audit`, admins): logins, accounts, tokens, server changes, imports,
   exports with secrets and every approval of tool changes. No credentials. It is
   append-only in the database itself (triggers refuse UPDATE and DELETE).
+- **Dashboard for teams:**
+  - **Per role:** each role sees only the controls it can use. Operators see stdio as
+    "admins only"; viewers get read tokens only. The server still enforces every rule.
+  - **Account:** change your password, see your sessions (browser, address) and sign them
+    out.
+  - **Users** (admins): add accounts, change roles, reset passwords, delete accounts.
+  - **Audit** (admins): the log, newest first, with what each approval covered.
 - **Schema version 4:** user roles, session ids, the audit log. It is migrated
   automatically, with a backup.
 - **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a

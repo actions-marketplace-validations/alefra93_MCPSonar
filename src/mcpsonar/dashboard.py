@@ -361,6 +361,24 @@ _PAGE = r"""<!doctype html>
   .aitem .t{color:var(--faint);font-family:var(--mono);font-size:11px;flex:none;}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px;}
   .legend i{display:inline-block;width:14px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle;}
+  /* The server enforces every role; this only hides controls that would answer 403. */
+  body.role-viewer .need-operator, body:not(.role-admin) .need-admin{display:none !important;}
+  .sub{font-size:13px;font-weight:650;margin:18px 0 8px;}
+  .ok{color:var(--up);font-size:13px;min-height:18px;margin-top:6px;}
+  .urow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;
+    border:1px solid var(--border);border-radius:10px;background:var(--surface-2);}
+  .urow .nm{font-weight:650;}
+  .urow .meta{font-size:12px;color:var(--muted);flex:1 1 100%;order:9;}
+  .btn{white-space:nowrap;}
+  @media (max-width:1100px){ .topbar{flex-wrap:wrap;row-gap:8px;} }
+  .urow select{font:inherit;font-size:12.5px;padding:3px 6px;border-radius:7px;
+    border:1px solid var(--border-strong);background:var(--surface);color:var(--text);}
+  .audit{display:grid;grid-template-columns:auto auto auto 1fr;gap:6px 12px;font-size:12.5px;
+    align-items:baseline;max-height:56vh;overflow:auto;}
+  .audit .t{font-family:var(--mono);font-size:11px;color:var(--faint);}
+  .audit .act{font-family:var(--mono);font-size:11.5px;}
+  .audit .det{color:var(--muted);overflow-wrap:anywhere;}
+  @media (max-width:640px){ .audit{grid-template-columns:auto 1fr;} }
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
     clip:rect(0,0,0,0);white-space:nowrap;border:0;}
   button.tlink{background:none;border:none;font:inherit;color:inherit;padding:0;}
@@ -407,9 +425,12 @@ _PAGE = r"""<!doctype html>
   <span class="whoami" id="whoami"></span>
   <button class="btn icon" id="themeBtn" title="Toggle theme" onclick="toggleTheme()">🌙</button>
   <button class="btn" onclick="location.href='/api/export'">Export</button>
-  <button class="btn" onclick="openImport()">Import</button>
-  <button class="btn primary" onclick="openForm()">＋ Add server</button>
+  <button class="btn need-operator" onclick="openImport()">Import</button>
+  <button class="btn primary need-operator" onclick="openForm()">＋ Add server</button>
+  <button class="btn need-admin" id="usersBtn" style="display:none" onclick="openUsers()">Users</button>
+  <button class="btn need-admin" id="auditBtn" style="display:none" onclick="openAudit()">Audit</button>
   <button class="btn" id="tokensBtn" style="display:none" onclick="openTokens()">API tokens</button>
+  <button class="btn" id="accountBtn" style="display:none" onclick="openAccount()">Account</button>
   <button class="btn" id="logoutBtn" style="display:none" onclick="logout()">Logout</button>
 </div>
 
@@ -506,7 +527,7 @@ _PAGE = r"""<!doctype html>
     <div class="err" id="changesErr"></div>
     <div class="buttons">
       <button class="btn" onclick="closeChanges()">Close</button>
-      <button class="btn primary" id="ackBtn" onclick="ackChanges()">✓ Approve changes</button>
+      <button class="btn primary need-operator" id="ackBtn" onclick="ackChanges()">✓ Approve changes</button>
     </div>
   </div>
 </div>
@@ -516,7 +537,8 @@ _PAGE = r"""<!doctype html>
     <h2>API tokens</h2>
     <p class="lead">For the <code>mcpsonar</code> CLI and scripts: set <code>MCPSONAR_URL</code>
       and <code>MCPSONAR_TOKEN</code>. A token is shown once; only its hash is stored.
-      <b>read</b> tokens can only read; <b>write</b> tokens can also change servers.</p>
+      <b>read</b> tokens can only read; <b>write</b> tokens can also change servers, up to
+      your role (a token never acts as an admin).</p>
     <div class="toklist" id="tokList"></div>
     <div id="newTok" class="newtok" style="display:none"></div>
     <div class="row2">
@@ -529,6 +551,63 @@ _PAGE = r"""<!doctype html>
     <div class="buttons">
       <button class="btn" onclick="closeTokens()">Close</button>
       <button class="btn primary" onclick="createToken()">Create token</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="accountOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="accTitle">
+    <h2 id="accTitle">Your account</h2>
+    <p class="lead" id="accLead"></p>
+    <h3 class="sub">Change password</h3>
+    <div class="row2">
+      <div class="field"><label for="a_cur">Current password</label>
+        <input id="a_cur" type="password" autocomplete="current-password"></div>
+      <div class="field"><label for="a_new">New password (8+ characters)</label>
+        <input id="a_new" type="password" autocomplete="new-password"></div>
+    </div>
+    <div class="err" id="accErr"></div><div class="ok" id="accOk"></div>
+    <div class="buttons"><button class="btn primary" onclick="changePassword()">Change password</button></div>
+    <h3 class="sub">Signed-in sessions</h3>
+    <div class="toklist" id="sessList"></div>
+    <div class="buttons"><button class="btn" onclick="closeOverlay('accountOverlay')">Close</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="usersOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="usersTitle">
+    <h2 id="usersTitle">Users</h2>
+    <p class="lead"><b>viewer</b> sees everything; <b>operator</b> also checks servers, manages
+      HTTP servers and approves tool changes; <b>admin</b> also manages stdio servers, users,
+      exports with secrets and the audit log. The last admin always stays.</p>
+    <div class="toklist" id="userList"></div>
+    <h3 class="sub">Add a user</h3>
+    <div class="row2">
+      <div class="field"><label for="u_name">Username</label><input id="u_name" autocomplete="off"></div>
+      <div class="field"><label for="u_pw">Password (8+ characters)</label>
+        <input id="u_pw" type="password" autocomplete="new-password"></div>
+      <div class="field"><label for="u_role">Role</label><select id="u_role">
+        <option value="viewer">viewer</option><option value="operator">operator</option>
+        <option value="admin">admin</option></select></div>
+    </div>
+    <div class="err" id="userErr"></div>
+    <div class="buttons">
+      <button class="btn" onclick="closeOverlay('usersOverlay')">Close</button>
+      <button class="btn primary" onclick="addUser()">Add user</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="auditOverlay">
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="auditTitle">
+    <h2 id="auditTitle">Audit log</h2>
+    <p class="lead">Who did what, newest first. Append-only: the database refuses to change or
+      delete an entry. Credentials are never recorded.</p>
+    <div class="audit" id="auditList"></div>
+    <div class="err" id="auditErr"></div>
+    <div class="buttons">
+      <button class="btn" id="auditMore" onclick="loadAudit(true)">Load older</button>
+      <button class="btn" onclick="closeOverlay('auditOverlay')">Close</button>
     </div>
   </div>
 </div>
@@ -721,10 +800,10 @@ function renderList() {
           <button class="act" aria-label="Tools · ${esc(s.name)}" onclick="openTools('${s.id}')">Tools</button>
           <button class="act" aria-label="Changes · ${esc(s.name)}" onclick="openChanges('${s.id}')">Changes</button>
           <button class="act" aria-label="History · ${esc(s.name)}" onclick="openHistory('${s.id}')">History</button>
-          <button class="act" aria-label="Check · ${esc(s.name)}" onclick="checkNow('${s.id}')">Check</button>
-          <button class="act" aria-label="Edit · ${esc(s.name)}" onclick="editServer('${s.id}')">Edit</button>
-          <button class="act" aria-label="${s.enabled?"Pause":"Resume"} · ${esc(s.name)}" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
-          <button class="act danger" aria-label="Delete · ${esc(s.name)}" onclick="del('${s.id}')">Delete</button>
+          <button class="act need-operator" aria-label="Check · ${esc(s.name)}" onclick="checkNow('${s.id}')">Check</button>
+          <button class="act need-operator" aria-label="Edit · ${esc(s.name)}" onclick="editServer('${s.id}')">Edit</button>
+          <button class="act need-operator" aria-label="${s.enabled?"Pause":"Resume"} · ${esc(s.name)}" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
+          <button class="act danger need-operator" aria-label="Delete · ${esc(s.name)}" onclick="del('${s.id}')">Delete</button>
         </div>
       </div>
     </div>`;
@@ -747,7 +826,15 @@ function parseLines(text, sep){
 }
 function dumpLines(obj, sep){ return Object.entries(obj||{}).map(([k,v])=>k+sep+v).join("\n"); }
 
+function limitByRole(){
+  const stdio = $("f_transport").querySelector('option[value="stdio"]');
+  stdio.disabled = ROLE !== "admin";
+  stdio.textContent = ROLE === "admin" ? "stdio (local process)" : "stdio (local process) — admins only";
+  const write = $("t_scope").querySelector('option[value="write"]');
+  write.disabled = ROLE === "viewer";
+}
 function openForm() {
+  limitByRole();
   $("formTitle").textContent = "Add server";
   ["f_id","f_name","f_url","f_headers","f_command","f_args","f_env","f_tools"].forEach(i=>$(i).value="");
   $("f_transport").value="http"; onTransport();
@@ -1039,13 +1126,14 @@ async function doImport(){
 
 /* API tokens */
 function closeTokens(){ $("tokensOverlay").classList.remove("open"); $("newTok").style.display="none"; $("newTok").textContent=""; }
-function openTokens(){ $("tokErr").textContent=""; $("t_name").value=""; $("t_days").value=""; loadTokens(); $("tokensOverlay").classList.add("open"); }
+function openTokens(){ limitByRole(); $("tokErr").textContent=""; $("t_name").value=""; $("t_days").value=""; loadTokens(); $("tokensOverlay").classList.add("open"); }
 const fmtDate = t => t ? new Date(t*1000).toLocaleString() : "never";
 async function loadTokens(){
   try{
     const list=await api("GET","/api/tokens");
     $("tokList").innerHTML = list.length ? list.map(t=>
       `<div class="tok"><span class="nm">${esc(t.name)}</span><span class="badge">${esc(t.scope)}</span>`+
+      (ROLE==="admin" && t.created_by!==ME ? `<span class="badge" style="cursor:default">${esc(t.created_by)}</span>` : "")+
       `<span class="meta">created ${esc(fmtDate(t.created_at))} · expires ${esc(fmtDate(t.expires_at))} · last used ${esc(t.last_used_at?fmtDate(t.last_used_at):"never")}</span>`+
       `<button class="btn" onclick="revokeToken('${esc(t.id)}')">Revoke</button></div>`).join("")
       : '<p class="muted">No tokens yet.</p>';
@@ -1068,14 +1156,122 @@ async function revokeToken(id){
 
 /* auth */
 async function logout(){ await fetch("/api/auth/logout",{method:"POST"}); location.href="/login"; }
+let ROLE = "admin", ME = null;
+function closeOverlay(id){ $(id).classList.remove("open"); }
 async function initAuth(){
   try{
     const s=await (await fetch("/api/auth/status")).json();
+    ROLE = s.role || "admin"; ME = s.username;
+    document.body.classList.add("role-"+ROLE);
     if(s.auth_enabled){
-      $("logoutBtn").style.display=""; $("tokensBtn").style.display="";
-      if(s.username){ $("whoami").innerHTML='<span class="av">'+esc(s.username[0])+'</span>'+esc(s.username); }
+      for (const id of ["logoutBtn", "tokensBtn", "accountBtn", "usersBtn", "auditBtn"]) $(id).style.display="";
+      if(s.username){ $("whoami").innerHTML='<span class="av">'+esc(s.username[0])+'</span>'+esc(s.username)+
+        ' <span class="badge" style="cursor:default">'+esc(ROLE)+'</span>'; }
     }
   }catch(e){}
+}
+
+/* account */
+function openAccount(){
+  $("accLead").textContent = `Signed in as ${ME} (${ROLE}).`;
+  for (const id of ["a_cur", "a_new"]) $(id).value = "";
+  $("accErr").textContent = ""; $("accOk").textContent = "";
+  $("accountOverlay").classList.add("open"); loadSessions();
+}
+async function changePassword(){
+  $("accErr").textContent = ""; $("accOk").textContent = "";
+  try {
+    await api("POST", "/api/auth/password", {current_password: $("a_cur").value, new_password: $("a_new").value});
+    for (const id of ["a_cur", "a_new"]) $(id).value = "";
+    $("accOk").textContent = "Password changed. Your other sessions were signed out.";
+    loadSessions();
+  } catch(e) { $("accErr").textContent = "Error: " + e.message; }
+}
+function shortAgent(ua){
+  if (!ua) return "unknown browser";
+  const m = ua.match(/(Edg|Firefox|Chrome|Safari)\/[\d.]+/); const os = ua.match(/Windows|Mac OS X|Android|iPhone|Linux/);
+  return (m ? m[0].split("/")[0].replace("Edg", "Edge") : ua.slice(0, 40)) + (os ? " · " + os[0] : "");
+}
+async function loadSessions(){
+  try {
+    const list = await api("GET", "/api/auth/sessions");
+    $("sessList").innerHTML = list.map(x =>
+      `<div class="urow"><span class="nm">${esc(shortAgent(x.user_agent))}</span>`+
+      (x.current ? '<span class="badge" style="cursor:default">this browser</span>' : "")+
+      `<span class="meta">${esc(x.client || "?")} · signed in ${esc(relTime(new Date(x.created_at*1000).toISOString()))}</span>`+
+      (x.current ? "" : `<button class="btn" onclick="endSession('${esc(x.id)}')">Sign out</button>`)+
+      `</div>`).join("");
+  } catch(e) { $("accErr").textContent = "Error: " + e.message; }
+}
+async function endSession(id){
+  try { await api("DELETE", "/api/auth/sessions/" + encodeURIComponent(id)); loadSessions(); }
+  catch(e) { $("accErr").textContent = "Error: " + e.message; }
+}
+
+/* users (admin) */
+function openUsers(){ $("userErr").textContent = ""; $("usersOverlay").classList.add("open"); loadUsers(); }
+async function loadUsers(){
+  try {
+    const list = await api("GET", "/api/users");
+    $("userList").innerHTML = list.map(u => {
+      const q = encodeURIComponent(u.username), opts = ["viewer", "operator", "admin"].map(r =>
+        `<option value="${r}"${r===u.role?" selected":""}>${r}</option>`).join("");
+      return `<div class="urow"><span class="nm">${esc(u.username)}${u.username===ME?" (you)":""}</span>`+
+        `<select aria-label="Role of ${esc(u.username)}" onchange="setRole('${q}', this.value)">${opts}</select>`+
+        `<span class="meta">${u.sessions} session${u.sessions===1?"":"s"} · ${u.tokens} token${u.tokens===1?"":"s"} · since ${esc(fmtTime(u.created_at))}</span>`+
+        `<button class="btn" onclick="resetPassword('${q}')">Reset password</button>`+
+        (u.username===ME ? "" : `<button class="btn" onclick="deleteUser('${q}')">Delete</button>`)+`</div>`; }).join("");
+  } catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+async function addUser(){
+  $("userErr").textContent = "";
+  try {
+    await api("POST", "/api/users", {username: $("u_name").value.trim(), password: $("u_pw").value, role: $("u_role").value});
+    $("u_name").value = ""; $("u_pw").value = ""; loadUsers();
+  } catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+async function setRole(q, role){
+  $("userErr").textContent = "";
+  try { await api("PATCH", "/api/users/" + q, {role}); }
+  catch(e) { $("userErr").textContent = "Error: " + e.message; }
+  loadUsers();
+}
+async function resetPassword(q){
+  const pw = prompt("New password for " + decodeURIComponent(q) + " (8+ characters). Their sessions and API tokens end.");
+  if (!pw) return;
+  try { const r = await api("POST", "/api/users/" + q + "/password", {password: pw});
+    $("userErr").textContent = ""; loadUsers();
+    alert("Password set. " + r.tokens_revoked + " API token(s) revoked."); }
+  catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+async function deleteUser(q){
+  if (!confirm("Delete " + decodeURIComponent(q) + "? Their sessions and API tokens end too.")) return;
+  try { await api("DELETE", "/api/users/" + q); loadUsers(); }
+  catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+
+/* audit (admin) */
+let AUDIT_LAST = null;
+function openAudit(){ AUDIT_LAST = null; $("auditList").innerHTML = ""; $("auditErr").textContent = "";
+  $("auditOverlay").classList.add("open"); loadAudit(false); }
+function auditDetail(e){
+  const d = e.detail || {};
+  if (e.action === "tool_changes.approved")
+    return `${d.server||""}: ` + (d.changes||[]).map(c => `${c.kind} ${c.tool}` +
+      (c.fields && c.fields.length ? ` (${c.fields.join(", ")})` : "") + (c.findings ? ` · ${c.findings} finding(s)` : "")).join("; ");
+  return Object.entries(d).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ");
+}
+async function loadAudit(more){
+  try {
+    const q = more && AUDIT_LAST ? "?before=" + AUDIT_LAST : "";
+    const list = await api("GET", "/api/audit" + q);
+    if (list.length) AUDIT_LAST = list[list.length - 1].id;
+    $("auditMore").disabled = list.length < 200;
+    $("auditList").innerHTML += list.map(e =>
+      `<span class="t">${esc(fmtTime(e.at))}</span><span>${esc(e.actor)}</span>`+
+      `<span class="act">${esc(e.action)}</span><span class="det">${esc([e.target, auditDetail(e)].filter(Boolean).join(" · "))}</span>`).join("");
+    if (!$("auditList").innerHTML) $("auditList").innerHTML = '<span class="muted">Nothing recorded yet.</span>';
+  } catch(e) { $("auditErr").textContent = "Error: " + e.message; }
 }
 
 /* close modals on overlay click / Escape */
