@@ -3,9 +3,16 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [Unreleased]
+## [0.8.1] — 2026-10-22
 
 ### Fixed
+- **Dashboard stuck on "Loading…" after a latency shift.** Since 0.8.0 a `latency_shift`
+  carries `since`; `/api/status` failed (500) as soon as any server's last anomaly was a
+  shift, and the whole dashboard stopped loading. Upgrade if you run 0.8.0.
+- **Heartbeat strip of new servers looked empty:** the padding slots shared a CSS class with
+  the empty-state box, so servers with fewer than 40 checks showed no bars.
+- **The "Anomalies" tile counts each episode once:** checks marked `ongoing` no longer add
+  to it (they still show in the strip, with "(ongoing)" in the tooltip).
 - History is ordered deterministically when two checks share a timestamp (coarse clocks
   on Windows): insertion order wins. A test depending on it failed intermittently on the
   Windows CI runner.
