@@ -32,6 +32,7 @@ from .base import BaseAdapter
 logger = logging.getLogger("mcpsonar.adapters.email")
 
 TIMEOUT_S = 20.0
+CONNECT_TIMEOUT_S = 5.0  # per address: one that drops packets must not eat the whole budget
 
 
 class SMTPDeliveryError(Exception):
@@ -39,13 +40,18 @@ class SMTPDeliveryError(Exception):
 
 
 def _connect(addresses: list[str], port: int, timeout: float) -> socket.socket:
-    """The first vetted address that accepts the connection."""
+    """The first vetted address that accepts the connection. Each attempt is short (a host
+    name often resolves to IPv6 and IPv4; a broken path must not stall the delivery), then
+    the connected socket gets the full ``timeout`` for the conversation."""
     last: OSError | None = None
     for address in addresses:
         try:
-            return socket.create_connection((address, port), timeout)
+            sock = socket.create_connection((address, port), min(timeout, CONNECT_TIMEOUT_S))
         except OSError as exc:
             last = exc
+            continue
+        sock.settimeout(timeout)
+        return sock
     raise last or OSError("no address to connect to")
 
 

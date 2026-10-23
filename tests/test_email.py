@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import datetime as dt
+import ipaddress
 import socket
 import ssl
 import threading
@@ -37,7 +38,9 @@ def cert(tmp_path_factory):
         .public_key(key.public_key()).serial_number(x509.random_serial_number())
         .not_valid_before(now - dt.timedelta(minutes=5))
         .not_valid_after(now + dt.timedelta(days=1))
-        .add_extension(x509.SubjectAlternativeName([x509.DNSName("localhost")]), False)
+        .add_extension(x509.SubjectAlternativeName(
+            [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
+            False)
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), True)
         .sign(key, hashes.SHA256())
     )
@@ -125,7 +128,9 @@ class FakeSMTP:
 
 
 def _cfg(port: int, **kw) -> EmailWebhook:
-    base = {"host": "localhost", "port": port, "sender": "mcpsonar@example.com",
+    # 127.0.0.1, not "localhost": the fake server listens on IPv4 only, and how a runner
+    # treats ::1 is not what these tests are about.
+    base = {"host": "127.0.0.1", "port": port, "sender": "mcpsonar@example.com",
             "to": ["ops@example.com"], "username": "mcpsonar",
             "password": "${env:MCPSONAR_SECRET_SMTP}"}
     return EmailWebhook(**{**base, **kw})
@@ -202,7 +207,7 @@ async def test_untrusted_certificate_is_refused(cert):
 
 async def test_outbound_policy_applies_to_smtp(cert):
     set_policy(OutboundPolicy.from_env({"MCPSONAR_OUTBOUND_DENY": "127.0.0.0/8,::1/128"}))
-    adapter = EmailAdapter(_cfg(2525), "calc", httpx2.AsyncClient())
+    adapter = EmailAdapter(_cfg(2525, host="localhost"), "calc", httpx2.AsyncClient())
     with pytest.raises(SMTPDeliveryError, match="outbound policy blocked localhost"):
         await adapter.send(DOWN)
 
