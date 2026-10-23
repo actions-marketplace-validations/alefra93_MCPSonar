@@ -62,6 +62,7 @@ class FakeSMTP:
         self.server_ctx.load_cert_chain(*cert)
         self.messages: list[bytes] = []
         self.auth: list[str] = []
+        self.ehlo: list[str] = []
         self.sock = socket.socket()
         self.sock.bind(("127.0.0.1", 0))
         self.sock.listen()
@@ -96,6 +97,7 @@ class FakeSMTP:
             cmd = line.decode().strip()
             verb = cmd.split(" ", 1)[0].upper()
             if verb in ("EHLO", "HELO"):
+                self.ehlo.append(cmd.split(" ", 1)[1] if " " in cmd else "")
                 caps = ["250-fake"]
                 if self.mode == "starttls" and not tls:
                     caps.append("250-STARTTLS")
@@ -162,6 +164,7 @@ async def test_starttls_login_and_message(cert):
     finally:
         server.close()
     assert len(server.messages) == 1  # staying down is not a new message
+    assert set(server.ehlo) == {"example.com"}  # the sender's domain: no reverse DNS lookup
     assert server.auth == ["\0mcpsonar\0" + PASSWORD]  # the reference was resolved
     mail = message_from_bytes(server.messages[0], policy=default_policy)
     assert mail["Subject"].startswith("[MCPSonar]") and "calculator is DOWN" in mail["Subject"]

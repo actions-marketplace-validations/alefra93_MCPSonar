@@ -59,9 +59,10 @@ class _SMTP(smtplib.SMTP):
     """Connects only to vetted IP addresses; smtplib keeps the host name (``_host``) for
     the certificate check of STARTTLS."""
 
-    def __init__(self, addresses: list[str], host: str, port: int, timeout: float) -> None:
+    def __init__(self, addresses: list[str], host: str, port: int, timeout: float,
+                 ehlo_name: str) -> None:
         self.addresses = addresses
-        super().__init__(host, port, timeout=timeout)
+        super().__init__(host, port, local_hostname=ehlo_name, timeout=timeout)
 
     def _get_socket(self, host, port, timeout):  # smtplib hook
         return _connect(self.addresses, port, timeout)
@@ -71,9 +72,10 @@ class _SMTPS(smtplib.SMTP_SSL):
     """Implicit TLS to vetted IP addresses, verified against the host name."""
 
     def __init__(self, addresses: list[str], host: str, port: int, timeout: float,
-                 context: ssl.SSLContext) -> None:
+                 ehlo_name: str, context: ssl.SSLContext) -> None:
         self.addresses = addresses
-        super().__init__(host, port, timeout=timeout, context=context)
+        super().__init__(host, port, local_hostname=ehlo_name, timeout=timeout,
+                         context=context)
 
     def _get_socket(self, host, port, timeout):
         sock = _connect(self.addresses, port, timeout)
@@ -140,12 +142,16 @@ class EmailAdapter(BaseAdapter):
                  password: str | None) -> None:
         cfg = self._cfg
         step = "connect"
+        # The EHLO name. Left unset, smtplib asks socket.getfqdn(): a reverse DNS lookup that
+        # can stall for tens of seconds on some hosts (seen on macOS). The sender's domain
+        # is the conventional choice and needs no lookup.
+        ehlo_name = cfg.sender.rsplit("@", 1)[1]
         try:
             if cfg.security == "tls":
                 smtp: smtplib.SMTP = _SMTPS(addresses, cfg.host, cfg.port, TIMEOUT_S,
-                                            self._context())
+                                            ehlo_name, self._context())
             else:
-                smtp = _SMTP(addresses, cfg.host, cfg.port, TIMEOUT_S)
+                smtp = _SMTP(addresses, cfg.host, cfg.port, TIMEOUT_S, ehlo_name)
             with smtp:
                 if cfg.security == "starttls":
                     step = "STARTTLS"
