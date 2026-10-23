@@ -166,7 +166,7 @@ Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfi
 As a **GitHub Action**, pinned to a release:
 
 ```yaml
-- uses: alefra93/MCPSonar@v0.8.1
+- uses: alefra93/MCPSonar@v0.9.0
   with:
     target: https://mcp.example.com/mcp
     lock: mcp-tools.lock.json
@@ -180,7 +180,7 @@ A security check shouldn't change under you any more than the servers it watches
 updates:
 
 ```yaml
-- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.8.1
+- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.9.0
 ```
 
 ```yaml
@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: alefra93/MCPSonar@v0.8.1
+      - uses: alefra93/MCPSonar@v0.9.0
         with:
           target: https://mcp.example.com/mcp
           lock: mcp-tools.lock.json
@@ -300,7 +300,7 @@ pipx install git+https://github.com/alefra93/MCPSonar.git
 ```
 
 Every GitHub Release (from v0.8.0) also carries the wheel, which needs no git:
-`uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.1/mcpsonar-0.8.1-py3-none-any.whl mcpsonar …`.
+`uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar …`.
 Tab completion: `mcpsonar completion bash|zsh|fish|powershell` (see
 [docs/cli.md](https://github.com/alefra93/MCPSonar/blob/main/docs/cli.md#shell-completion)).
 

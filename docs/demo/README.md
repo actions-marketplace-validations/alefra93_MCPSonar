@@ -14,7 +14,7 @@ on `127.0.0.1`.
 
 ```bash
 # with uv, nothing to install
-uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.0/mcpsonar-0.8.0-py3-none-any.whl mcpsonar demo --scenario rug-pull
+uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar demo --scenario rug-pull
 
 # or, with mcpsonar installed
 mcpsonar demo --scenario all --dashboard

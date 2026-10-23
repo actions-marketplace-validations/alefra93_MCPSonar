@@ -10,7 +10,7 @@ name: mcpsonar-watch
 services:
   mcpsonar:
     build: .
-    image: mcpsonar:0.8.1
+    image: mcpsonar:0.9.0
     container_name: mcpsonar-watch
     ports:
       - "127.0.0.1:8675:8675"

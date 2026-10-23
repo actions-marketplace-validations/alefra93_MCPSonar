@@ -3,7 +3,7 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
-## [Unreleased]
+## [0.9.0] — 2026-10-23
 
 ### Added
 - **`mcpsonar demo --scenario NAME`**: deterministic demos told step by step in the

@@ -41,7 +41,7 @@ does not need it.
 ## `uvx` is not found
 
 Install uv (https://docs.astral.sh/uv/), or install MCPSonar with pip:
-`pip install https://github.com/alefra93/MCPSonar/releases/download/v0.8.0/mcpsonar-0.8.0-py3-none-any.whl`.
+`pip install https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl`.
 
 ## Stopping
 
