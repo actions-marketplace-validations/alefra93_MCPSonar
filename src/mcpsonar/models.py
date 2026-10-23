@@ -14,6 +14,7 @@ is performed.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -140,6 +141,15 @@ class CheckEvent(BaseModel):
         "tool changes, response drift). Entries with ongoing=true continue an episode an "
         "earlier check already reported. Empty on a nominal check.",
     )
+    previous_status: CheckStatus | None = Field(
+        default=None,
+        description="Status of the check before this one (None for a server's first check). "
+        "Set on live events (webhooks, notifications); not kept in the history.",
+    )
+    previous_status_since: datetime | None = Field(
+        default=None,
+        description="When the previous status began (the start of that run of checks).",
+    )
     latency_baseline_ms: float | None = Field(
         default=None,
         description="Median latency of recent healthy checks (None until enough history; "
@@ -233,11 +243,125 @@ class GenericWebhook(BaseModel):
         description="Also fire when a check detects something new (anomaly or tool change), "
         "whatever its status.",
     )
+    on_recovery: bool = Field(
+        default=True,
+        description="Also fire once when the server comes back up from a status in `on` "
+        "(the payload's previous_status says from what).",
+    )
+
+
+def _check_https_url(value: str) -> str:
+    _check_http_url(value)
+    if not value.lower().startswith("https://"):
+        raise ValueError("must be an https:// URL (it carries a secret)")
+    return value
+
+
+class _NotifyRules(BaseModel):
+    """When a human notification is sent: one message per change, not one per check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    on: list[CheckStatus] = Field(
+        default_factory=lambda: [CheckStatus.DOWN, CheckStatus.DEGRADED],
+        description="Notify when the server enters one of these statuses (once per change).",
+    )
+    on_anomaly: bool = Field(
+        default=True,
+        description="Notify new anomalies: tool changes, latency episodes, flapping, drift.",
+    )
+    on_recovery: bool = Field(
+        default=True,
+        description="Notify once when the server is back up, with how long it was out.",
+    )
+
+
+class _ChatWebhook(_NotifyRules):
+    url: Annotated[str, AfterValidator(_check_https_url)] = Field(
+        description="Incoming-webhook URL (a secret: masked in every output)."
+    )
+
+
+class SlackWebhook(_ChatWebhook):
+    """Slack incoming webhook (https://hooks.slack.com/services/...)."""
+
+    type: Literal["slack"] = "slack"
+
+
+class DiscordWebhook(_ChatWebhook):
+    """Discord channel webhook (https://discord.com/api/webhooks/...)."""
+
+    type: Literal["discord"] = "discord"
+
+
+_EMAIL = re.compile(r"^[^@\s<>,;]+@[^@\s<>,;]+\.[^@\s<>,;]+$")
+_HOSTNAME = re.compile(r"^[A-Za-z0-9.-]{1,253}$|^\[?[0-9A-Fa-f:.]+\]?$")
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+
+
+def _check_email(value: str) -> str:
+    if not _EMAIL.match(value):
+        raise ValueError(f"not an email address: {value!r}")
+    return value
+
+
+EmailAddress = Annotated[str, AfterValidator(_check_email)]
+
+
+class EmailWebhook(_NotifyRules):
+    """Email through an SMTP server, over TLS (STARTTLS on 587, or implicit TLS on 465)."""
+
+    type: Literal["email"] = "email"
+    host: str = Field(description="SMTP server host name.")
+    port: int = Field(default=587, ge=1, le=65535)
+    security: Literal["starttls", "tls", "none"] = Field(
+        default="starttls",
+        description="'starttls' (required, not opportunistic) or 'tls' (implicit, port 465). "
+        "'none' only for a relay on localhost (e.g. a local test inbox).",
+    )
+    username: str | None = None
+    password: str | None = Field(
+        default=None,
+        description="SMTP password: preferably a secret reference (${env:...} / ${file:...}).",
+    )
+    sender: EmailAddress = Field(description="From address.")
+    to: list[EmailAddress] = Field(min_length=1, max_length=20, description="Recipients.")
+    subject_prefix: str = Field(default="[MCPSonar]", max_length=40)
+
+    @field_validator("host")
+    @classmethod
+    def _check_host(cls, value: str) -> str:
+        if not _HOSTNAME.match(value):
+            raise ValueError(f"not a host name: {value!r}")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def _check_password_reference(cls, value: str | None) -> str | None:
+        from .secretref import check_syntax
+
+        if value is not None:
+            check_syntax(value)
+        return value
+
+    @field_validator("subject_prefix")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        if "\r" in value or "\n" in value:
+            raise ValueError("must be a single line")
+        return value
+
+    @model_validator(mode="after")
+    def _plaintext_only_on_localhost(self) -> EmailWebhook:
+        if self.security == "none" and self.host.lower() not in _LOCAL_HOSTS:
+            raise ValueError("security 'none' sends mail (and the password) unencrypted: "
+                             "only allowed with a relay on localhost")
+        return self
 
 
 # Discriminated union so the YAML `type:` picks the right model with clear errors.
 WebhookConfig = Annotated[
-    UptimeKumaWebhook | GenericWebhook,
+    UptimeKumaWebhook | GenericWebhook | SlackWebhook | DiscordWebhook | EmailWebhook,
     Field(discriminator="type"),
 ]
 

@@ -163,6 +163,13 @@ def check_config(cfg: ServerConfig, environ: Mapping[str, str] | None = None) ->
                 check_policy(value, environ)
             except SecretRefError as exc:
                 raise SecretRefError(f"{where} '{key}': {exc}") from None
+    for webhook in cfg.webhooks:
+        password = getattr(webhook, "password", None)
+        if getattr(webhook, "type", "") == "email" and password:
+            try:
+                check_policy(password, environ)
+            except SecretRefError as exc:
+                raise SecretRefError(f"email password: {exc}") from None
 
 
 def resolve(cfg: ServerConfig, environ: Mapping[str, str] | None = None) -> ServerConfig:

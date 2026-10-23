@@ -40,7 +40,7 @@ poisoning patterns.
 ## Try it
 
 ```bash
-uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.1/mcpsonar-0.8.1-py3-none-any.whl mcpsonar demo
+uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar demo
 ```
 
 Needs only [uv](https://docs.astral.sh/uv/). The demo dashboard runs against four scripted local MCP servers: one gets rug-pulled, one
@@ -49,11 +49,16 @@ gets slower, one flaps.
 Scan a server once, as in CI:
 
 ```bash
-uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.1/mcpsonar-0.8.1-py3-none-any.whl mcpsonar scan https://example.com/mcp
+uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar scan https://example.com/mcp
 ```
 
 ## Documentation
 
+- [Quickstart](quickstart.md): install, scan, monitor, review a rug pull and gate CI in ten
+  minutes, all local.
+- [FAQ](faq.md) and [troubleshooting](troubleshooting.md).
+- [Demo](demo/README.md): step-by-step scenarios for talks and articles, and a
+  [speaker guide](demo/speaker-guide.md).
 - [Command line](cli.md): every command, local and remote mode, exit codes, completion.
 - [Configuration](configuration.md): servers, probes, secrets, backups, reverse proxy.
 - [Detection rules](detection-rules.md): what each lint rule looks for, its limits, its

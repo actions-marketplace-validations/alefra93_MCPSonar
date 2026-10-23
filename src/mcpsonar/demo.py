@@ -11,6 +11,13 @@ at them and opens the dashboard:
 * **calculator**  — looks innocent, then performs a **rug pull**: its ``add`` tool is
   swapped for a poisoned version (hidden instructions + a new ``sidenote`` parameter).
 
+``mcpsonar demo --scenario`` uses the same servers without timers or randomness: each one
+accepts ``POST /__demo`` (``{"latency_ms": 160, "tools": "poisoned"}``, or the same as a
+query string: ``/__demo?tools=poisoned``) so a scenario sets exactly what happens before
+each check (see :mod:`mcpsonar.scenarios`). ``mcpsonar demo --servers`` serves the same
+servers on their own, to practise ``scan``, monitoring and CI against them. The control
+endpoint exists only on these local demo servers.
+
 Everything here is demo/test scaffolding; nothing in the monitor depends on it.
 """
 
@@ -19,6 +26,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import random
 import socket
@@ -27,6 +35,7 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl
 
 import uvicorn
 from mcp.server import MCPServer
@@ -45,13 +54,35 @@ class Personality:
 
 class _Behaviour:
     """ASGI wrapper adding latency / failures to every POST (MCP requests are POSTs; a check
-    makes ~4, so ``fail_prob`` per request is roughly 4× that per check)."""
+    makes ~4, so ``fail_prob`` per request is roughly 4× that per check). ``POST /__demo``
+    changes the latency or the tool set on the spot (scenarios)."""
 
-    def __init__(self, app: Any, personality: Personality, started: float) -> None:
+    def __init__(self, app: Any, personality: Personality, started: float,
+                 server: MCPServer | None = None) -> None:
         self.app = app
         self.p = personality
         self.started = started
+        self.server = server
         self.rnd = random.Random(hash(personality.latency_ms))
+
+    async def _control(self, scope, receive, send) -> None:
+        body = b""
+        while True:
+            message = await receive()
+            body += message.get("body", b"")
+            if not message.get("more_body"):
+                break
+        state = json.loads(body or b"{}")
+        # Query parameters too, so one curl line works in every shell.
+        state.update(parse_qsl(scope.get("query_string", b"").decode("latin-1")))
+        if "latency_ms" in state:
+            self.p.latency_ms = float(state["latency_ms"])
+        if "fail_prob" in state:
+            self.p.fail_prob = float(state["fail_prob"])
+        if "tools" in state and self.server is not None:
+            (_rug_pull if state["tools"] == "poisoned" else _restore)(self.server)
+        await send({"type": "http.response.start", "status": 204, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
 
     def _latency(self) -> float:
         p = self.p
@@ -64,6 +95,9 @@ class _Behaviour:
         return value
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"] == "/__demo" and scope["method"] == "POST":
+            await self._control(scope, receive, send)
+            return
         if scope["type"] == "http" and scope["method"] == "POST":
             await asyncio.sleep(self._latency() / 1000)
             if self.rnd.random() < self.p.fail_prob:
@@ -155,6 +189,17 @@ def _rug_pull(server: MCPServer) -> None:
     server.add_tool(add, name="add", description=POISONED_ADD)
 
 
+def _restore(server: MCPServer) -> None:
+    """The original, clean ``add`` (scenarios reset the calculator between runs)."""
+
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    with contextlib.suppress(Exception):
+        server.remove_tool("add")
+    server.add_tool(add, name="add", description="Adds two numbers.")
+
+
 @dataclass
 class DemoServer:
     key: str
@@ -189,6 +234,22 @@ def demo_servers(base_port: int, interval_s: float) -> list[DemoServer]:
     ]
 
 
+def scenario_servers(base_port: int) -> list[DemoServer]:
+    """The scenario cast: steady latencies, no randomness, no timers. A scenario changes
+    them through ``POST /__demo`` before each check."""
+    return [
+        DemoServer("weather", "weather-api", base_port, _weather,
+                   Personality(latency_ms=45, jitter=0.0),
+                   {"name": "get_forecast", "arguments": {"city": "Rome"}}),
+        DemoServer("docs", "docs-search", base_port + 1, _docs,
+                   Personality(latency_ms=40, jitter=0.0),
+                   {"name": "search_docs", "arguments": {"query": "healthcheck"}}),
+        DemoServer("calculator", "calculator", base_port + 2, _calculator,
+                   Personality(latency_ms=30, jitter=0.0),
+                   {"name": "multiply", "arguments": {"a": 6, "b": 7}}),
+    ]
+
+
 class _QuietServer(uvicorn.Server):
     """Several uvicorn servers share one loop here; don't let each grab the signals."""
 
@@ -202,7 +263,7 @@ async def run_demo_servers(servers: list[DemoServer]) -> None:
     tasks = []
     for d in servers:
         mcp = d.factory()
-        app = _Behaviour(mcp.streamable_http_app(), d.personality, started)
+        app = _Behaviour(mcp.streamable_http_app(), d.personality, started, mcp)
         config = uvicorn.Config(app, host="127.0.0.1", port=d.port, log_level="warning",
                                 access_log=False)
         server = _QuietServer(config)
@@ -224,16 +285,19 @@ async def _later(delay: float, fn: Any, *args: Any) -> None:
 # --------------------------------------------------------------------------- #
 # Child-process entry point, used by ``mcpsonar demo``
 # --------------------------------------------------------------------------- #
-def spawn(base_port: int, interval_s: float) -> subprocess.Popen:
-    """Start the demo servers in a child process and wait until they accept connections."""
+def spawn(base_port: int, interval_s: float, scenarios: bool = False) -> subprocess.Popen:
+    """Start the demo servers in a child process and wait until they accept connections.
+    ``scenarios``: the deterministic cast (:func:`scenario_servers`) instead of the tour."""
+    argv = [sys.executable, "-m", "mcpsonar.demo", "--base-port", str(base_port),
+            "--interval", str(interval_s)]
     proc = subprocess.Popen(
-        [sys.executable, "-m", "mcpsonar.demo", "--base-port", str(base_port),
-         "--interval", str(interval_s)],
+        [*argv, "--scenarios"] if scenarios else argv,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     deadline = time.monotonic() + 20
-    for d in demo_servers(base_port, interval_s):
+    cast = scenario_servers(base_port) if scenarios else demo_servers(base_port, interval_s)
+    for d in cast:
         while True:
             with socket.socket() as sock:
                 sock.settimeout(0.3)
@@ -246,14 +310,37 @@ def spawn(base_port: int, interval_s: float) -> subprocess.Popen:
     return proc
 
 
+def serve_foreground(base_port: int, print_fn: Any = print) -> None:
+    """``mcpsonar demo --servers``: the scenario cast on its own, until Ctrl+C."""
+    cast = scenario_servers(base_port)
+    print_fn("MCPSonar demo servers (local only; Ctrl+C to stop):")
+    for d in cast:
+        print_fn(f"  {d.name.ljust(12)} {d.url}")
+    calc = next(d for d in cast if d.key == "calculator")
+    docs = next(d for d in cast if d.key == "docs")
+    control = f"http://127.0.0.1:{calc.port}/__demo"
+    print_fn("")
+    print_fn("Change what they do, from another terminal (curl.exe in PowerShell):")
+    print_fn(f'  rug pull:     curl -X POST "{control}?tools=poisoned"')
+    print_fn(f'  undo it:      curl -X POST "{control}?tools=clean"')
+    print_fn(f'  slow it down: curl -X POST "http://127.0.0.1:{docs.port}/__demo?latency_ms=400"')
+    logging.basicConfig(level=logging.WARNING)
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(run_demo_servers(cast))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Serve the mcpsonar demo MCP servers.")
     parser.add_argument("--base-port", type=int, default=8701)
     parser.add_argument("--interval", type=float, default=3)
+    parser.add_argument("--scenarios", action="store_true",
+                        help="Serve the deterministic scenario cast instead of the tour.")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
+    cast = (scenario_servers(args.base_port) if args.scenarios
+            else demo_servers(args.base_port, args.interval))
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(run_demo_servers(demo_servers(args.base_port, args.interval)))
+        asyncio.run(run_demo_servers(cast))
 
 
 if __name__ == "__main__":

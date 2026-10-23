@@ -1,4 +1,5 @@
-"""Remote-mode views of a running instance: ``status``, ``check``, ``diff``, ``history``.
+"""Remote-mode views of a running instance: ``status``, ``check``, ``diff``, ``history``,
+``trust-report``.
 
 They render the same endpoints as the dashboard (so the numbers always agree) and never
 decide anything themselves: health, findings, baselines and change detection all come from
@@ -8,11 +9,14 @@ the dashboard.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from statistics import median
 from typing import Any
 
+from ..incidents import RANK, incidents
 from ..lint import SEVERITY_ORDER
 from ..output import (
     EXIT_ERROR,
@@ -27,7 +31,7 @@ from ..output import (
 from ._remote import Remote, RemoteError, add_remote_args, server_path
 
 STATUS_WORD = {"up": "HEALTHY", "degraded": "DEGRADED", "down": "DOWN"}
-_RANK = {"up": 0, "degraded": 1, "down": 2}
+_RANK = RANK
 
 
 def register(sub: Any) -> None:
@@ -78,6 +82,22 @@ def register(sub: Any) -> None:
     add_remote_args(history)
     add_format_args(history)
     history.set_defaults(handler=run_history)
+
+    trust = sub.add_parser(
+        "trust-report",
+        help="Trust Report of one or more servers, or the whole instance (HTML or JSON).",
+        description="Availability, pinned tool definitions with fingerprints, every tool "
+        "change in the window and who approved it, and the heuristic findings. A record of "
+        "observations, not a certification. Open the HTML in a browser and print it to PDF.",
+    )
+    trust.add_argument("servers", nargs="*", metavar="SERVER",
+                       help="Server name or id (default: every server).")
+    trust.add_argument("--last", default="30d", help="Window, e.g. 7d or 30d (default 30d).")
+    trust.add_argument("-o", "--output", metavar="FILE",
+                       help="Write to FILE instead of stdout.")
+    add_remote_args(trust)
+    add_format_args(trust, formats=("html", "json"))
+    trust.set_defaults(handler=run_trust_report)
 
 
 # ---- helpers ------------------------------------------------------------------ #
@@ -330,23 +350,35 @@ def _percentile(values: list[float], q: float) -> float:
     return ordered[min(len(ordered) - 1, round(q * (len(ordered) - 1)))]
 
 
-def incidents(events: list[dict]) -> list[dict]:
-    """Runs of non-up checks: when each started, its worst status, and when it recovered."""
-    found: list[dict] = []
-    current: dict | None = None
-    for e in events:
-        if e["status"] != "up":
-            if current is None:
-                current = {"started": e["checked_at"], "worst": e["status"], "checks": 0,
-                           "recovered": None, "detail": e.get("detail")}
-                found.append(current)
-            current["checks"] += 1
-            if _RANK[e["status"]] > _RANK[current["worst"]]:
-                current["worst"] = e["status"]
-        elif current is not None:
-            current["recovered"] = e["checked_at"]
-            current = None
-    return found
+async def run_trust_report(args: Any) -> int:
+    from ..trust import render_html
+
+    out = output_for(args)
+    try:
+        days = max(1, round(parse_duration(args.last) / 1440))
+    except ValueError as exc:
+        out.error(str(exc))
+        return EXIT_ERROR
+    remote = await _remote(args, out)
+    if remote is None:
+        return EXIT_ERROR
+    try:
+        async with remote:
+            ids = [(await remote.resolve_server(ref))["id"] for ref in args.servers]
+            # The instance builds the data; the CLI renders it with the same code.
+            report = await remote.get("/api/trust-report", server=ids or None, days=days,
+                                      format="json")
+    except RemoteError as exc:
+        out.error(str(exc))
+        return EXIT_ERROR
+    text = (json.dumps(report, indent=2, ensure_ascii=False) + "\n" if args.format == "json"
+            else render_html(report))
+    if args.output:
+        Path(args.output).write_text(text, encoding="utf-8")
+        out.print(f"Trust report of {len(report['servers'])} server(s) written to {args.output}")
+    else:
+        print(text, end="", file=out.stdout)
+    return EXIT_OK
 
 
 async def run_history(args: Any) -> int:

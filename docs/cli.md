@@ -24,7 +24,7 @@ built yet).
 | Command | Status | Mode | What it does |
 |---|---|---|---|
 | `run` | IMPLEMENTED | — | The monitor: dashboard, API, `/metrics`, scheduled checks. |
-| `demo` | IMPLEMENTED | — | Dashboard against four scripted local demo servers. |
+| `demo` | IMPLEMENTED | — | Dashboard against four scripted local demo servers. `--scenario healthy\|poisoning\|rug-pull\|latency-regression\|ci-gate\|all`: a deterministic story told step by step in the terminal, on the real engine (Enter between steps, `--auto` without pauses, `--json`). Exit 1 if MCPSonar did not react as expected, so `--scenario all --auto` is also a smoke test. `--servers`: only the three demo servers (`--port`+40..42), with one-line `curl` commands to rug-pull or slow them; used by the [quickstart](quickstart.md). |
 | `scan TARGET` | IMPLEMENTED | local | CI gate: lint + lockfile drift, exit 0/1/2 (`--fail-on`, `--lock`). |
 | `tools TARGET` | IMPLEMENTED | local | Every tool (all pages) with risk indicators; `--detail` for schemas. |
 | `risks TARGET` | IMPLEMENTED | local | Findings explained: rule, severity, evidence, what to review. |
@@ -37,6 +37,7 @@ built yet).
 | `check NAME\|--all` | IMPLEMENTED | remote | Check now, run by the instance (recorded like a scheduled check). Needs a *write* token. `--fail-on` (default down). |
 | `diff NAME [--all]` | IMPLEMENTED | remote | Changes vs the trusted definitions, each marked pending, SUSPICIOUS (new definition has findings) or APPROVED. Exit 1 while unreviewed. Never approves. |
 | `history NAME [--last 24h]` | IMPLEMENTED | remote | Uptime, latency p50/p95/max, learned baseline, latency shift, median time per phase (handshake, discovery, probes, total) and per probed tool, incidents (start → recovery), anomalies. Bounded: `--limit` 500 by default. |
+| `trust-report [SERVER...] [--last 30d] [-o FILE] [--format html\|json]` | IMPLEMENTED | remote | The Trust Report (read token): availability, pinned tool definitions with fingerprints, every tool change in the window and who approved it, heuristic findings. The instance builds the data; the CLI renders it with the same code. Print the HTML to PDF from a browser. |
 | `report [TARGET\|--config FILE] --format markdown\|json\|sarif` | IMPLEMENTED | local | Security report of one server or every server in a config: findings with rule documentation, lockfile drift (`--lock`), unreachable servers. SARIF 2.1.0 validated against the official schema. `-o FILE`, `--fail-on`. |
 | `completion bash\|zsh\|fish\|powershell` | IMPLEMENTED | local | Prints a completion script generated from this version's commands and options (no extra dependency). See [Shell completion](#shell-completion). |
 

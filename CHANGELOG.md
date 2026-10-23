@@ -3,6 +3,113 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
+## [0.9.0] — 2026-10-23
+
+### Added
+- **`mcpsonar demo --scenario NAME`**: deterministic demos told step by step in the
+  terminal: `healthy`, `poisoning`, `rug-pull`, `latency-regression`, `ci-gate`, or `all`.
+  - **Real engine:** the local demo servers are steered before each step (latency, clean or
+    poisoned tools) and the real engine runs on them: the monitor's check pipeline, the
+    `risks` view, `scan` with a lockfile and SARIF.
+  - **Self-checking:** each scenario asserts MCPSonar's reaction; exit 1 if one does not
+    behave, so `--scenario all --auto` is an end-to-end smoke test (run by the test suite).
+  - **Pacing:** Enter between steps on a terminal; `--auto` for no pauses; `--json`.
+  - **`--dashboard`:** the dashboard follows every step live (checks go through the
+    scheduler, like "Check now").
+  - **Guides:** `docs/demo/`: overview, scenarios, speaker guide, troubleshooting.
+- **`mcpsonar demo --servers`**: only the three demo MCP servers, with their URLs and
+  one-line `curl` commands to rug-pull or slow them down. The control endpoint also accepts
+  a query string (`/__demo?tools=poisoned`), so the same line works in every shell.
+- **Onboarding docs:**
+  - `docs/quickstart.md`: install, scan and pin, monitor, rug pull, review, CI gate and
+    doctor in about ten minutes, all local, every command run while writing it;
+  - `docs/faq.md`;
+  - `docs/troubleshooting.md`, including a verified procedure for a forgotten admin
+    password.
+- **`scan --no-color`**, like every other command.
+- **Slack and Discord notifications** (`type: slack` / `discord`): one message per change,
+  not per check.
+  - **What is sent:** down or degraded, back up with how long it was out, and new findings.
+    Episodes from 0.8 mean a slow period is one message.
+  - **Hostile text:** server-controlled text is stripped of invisible characters and
+    escaped: no `<!channel>` or `@everyone`, no disguised links. URLs must be https and
+    are masked.
+  - **Link to the instance:** `MCPSONAR_PUBLIC_URL` adds it to each message.
+- **Email notifications** (`type: email`): the same rules, through your SMTP server.
+  - **TLS:** required (STARTTLS that must succeed, or implicit TLS on 465). Plain SMTP only
+    for a relay on localhost.
+  - **Outbound policy:** checked before connecting; the connection goes only to an allowed
+    address, and the certificate is verified against the host name.
+  - **Password:** masked in every output and restored on edit. It can be a secret
+    reference.
+  - **Tested** against a scripted SMTP server with a certificate generated for the test:
+    STARTTLS, implicit TLS, a server without STARTTLS, an untrusted certificate and a
+    blocked destination.
+- **Dashboard:**
+  - **Incidents in History:** each run of non-up checks with its start, worst status,
+    duration (or "ongoing") and first reason. It comes from the same function as
+    `mcpsonar history`, now shared with the insights API (`"incidents"`).
+  - **Filters:** down, degraded, to review, findings, latency, auth required, paused. Only
+    the filters that match something are shown, and the choice is remembered in the
+    browser.
+  - **When the API can't be reached:** a banner says so, keeps the last data, and retries.
+    A 401 goes to the login page. Before, the page stayed on "Loading…".
+  - **Phones:** no more horizontal scrolling at 375 px (the top bar, tiles and actions
+    wrap).
+  - **Accessibility:**
+    - every text color reaches WCAG AA (4.5:1) in both themes; the light theme's green,
+      amber, teal and faint text were below it;
+    - per-server buttons have accessible names ("History · calculator");
+    - the heartbeat strip has a text equivalent ("Last 40 checks: 37 up, 3 down");
+    - the tool count is a real button.
+- **Accounts and roles:** `viewer`, `operator`, `admin`; admins manage accounts
+  (`/api/users`). The first account and every account from earlier versions is an admin;
+  the last admin can be neither demoted nor deleted. See
+  [Accounts and roles](docs/configuration.md#accounts-and-roles).
+- **Your account:** change your password (your other sessions end), list your sessions
+  (with their address and browser) and end any of them, keep your API tokens private. An
+  admin resetting a password also ends that person's sessions and tokens.
+- **Audit log** (`/api/audit`, admins): logins, accounts, tokens, server changes, imports,
+  exports with secrets and every approval of tool changes. No credentials. It is
+  append-only in the database itself (triggers refuse UPDATE and DELETE).
+- **Dashboard for teams:**
+  - **Per role:** each role sees only the controls it can use. Operators see stdio as
+    "admins only"; viewers get read tokens only. The server still enforces every rule.
+  - **Account:** change your password, see your sessions (browser, address) and sign them
+    out.
+  - **Users** (admins): add accounts, change roles, reset passwords, delete accounts.
+  - **Audit** (admins): the log, newest first, with what each approval covered.
+- **Trust Report**, for one server, several or the whole instance, over N days (default 30):
+  - **Contents:** availability (share of checks answered, incidents, time not up, the
+    longest incident, latency p50/p95); the pinned tool definitions with SHA-256
+    fingerprints; every tool change in the window with its review status and **who
+    approved it, when** (audit log); the lint findings on the current tools, labeled as
+    heuristics.
+  - **Format:** one self-contained page (no script, no external resource), styled for
+    printing to PDF. It gives no score and no verdict: it records observations.
+  - **Where:** `GET /api/trust-report` (html or json, any role), the dashboard (top bar,
+    History), and `mcpsonar trust-report` (renders the instance's JSON with the same code).
+- **Schema version 4:** user roles, session ids, the audit log. It is migrated
+  automatically, with a backup.
+- **Recovery for the generic webhook:** `on_recovery` (default on) sends one POST when a
+  server is back up from an `on` status. `CheckEvent` gains `previous_status` and
+  `previous_status_since` (live events only).
+
+### Changed
+- **Security: stricter API tokens.**
+  - **Lower of scope and role:** a token now acts with the lower of its scope and its
+    owner's current role, and never as an admin.
+  - **Owner gone:** a token whose owner no longer exists stops working.
+  - **No longer possible with a write token:** adding or changing a stdio server's process,
+    and exporting with secrets. These are admin actions and need a dashboard session.
+  - **Visibility:** tokens are listed and revoked by their owner (admins see all).
+- **The way back after a latency shift is found sooner.** After a reported shift, the next
+  shift is searched relative to the new level. Before, a short regression followed by a fix
+  could hide the return to normal, because the strongest split of the window was the
+  already-reported first change.
+- **Quieter new databases:** creating a new database no longer logs each migration step at
+  INFO; upgrading an existing one still does.
+
 ## [0.8.1] — 2026-10-22
 
 ### Fixed

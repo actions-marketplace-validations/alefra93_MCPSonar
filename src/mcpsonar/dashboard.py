@@ -123,9 +123,9 @@ _PAGE = r"""<!doctype html>
   :root{
     --bg:#f1f4f9; --surface:#ffffff; --surface-2:#f6f9fc; --elev:#ffffff;
     --border:#e4e9f2; --border-strong:#d2dbe8;
-    --text:#0e1a2b; --muted:#5b6b83; --faint:#93a1b6;
-    --accent:#0d9488; --accent-strong:#0f766e; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
-    --up:#15a34a; --degraded:#d97706; --down:#dc2626; --pending:#6b7a92; --anom:#7c3aed;
+    --text:#0e1a2b; --muted:#5b6b83; --faint:#5f6c80;
+    --accent:#0f766e; --accent-strong:#115e59; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
+    --up:#15803d; --degraded:#b45309; --down:#c81e1e; --pending:#6b7a92; --anom:#7c3aed;
     --shadow:0 1px 2px rgba(14,26,43,.05), 0 10px 26px rgba(14,26,43,.06);
     --shadow-lg:0 24px 70px rgba(14,26,43,.24);
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
@@ -136,7 +136,7 @@ _PAGE = r"""<!doctype html>
     :root{
       --bg:#070c15; --surface:#0f1826; --surface-2:#131f30; --elev:#14202f;
       --border:#1f2b3e; --border-strong:#2c3c54;
-      --text:#e7eefb; --muted:#93a3bd; --faint:#5f708a;
+      --text:#e7eefb; --muted:#93a3bd; --faint:#8494ad;
       --accent:#2dd4bf; --accent-strong:#5eead4; --accent-ink:#04120f; --accent-soft:rgba(45,212,191,.12);
       --up:#34d399; --degraded:#fbbf24; --down:#f87171; --pending:#7c8aa5; --anom:#a78bfa;
       --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.38);
@@ -145,15 +145,15 @@ _PAGE = r"""<!doctype html>
   }
   :root[data-theme="light"]{
     --bg:#f1f4f9; --surface:#ffffff; --surface-2:#f6f9fc; --elev:#ffffff;
-    --border:#e4e9f2; --border-strong:#d2dbe8; --text:#0e1a2b; --muted:#5b6b83; --faint:#93a1b6;
-    --accent:#0d9488; --accent-strong:#0f766e; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
-    --up:#15a34a; --degraded:#d97706; --down:#dc2626; --pending:#6b7a92; --anom:#7c3aed;
+    --border:#e4e9f2; --border-strong:#d2dbe8; --text:#0e1a2b; --muted:#5b6b83; --faint:#5f6c80;
+    --accent:#0f766e; --accent-strong:#115e59; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
+    --up:#15803d; --degraded:#b45309; --down:#c81e1e; --pending:#6b7a92; --anom:#7c3aed;
     --shadow:0 1px 2px rgba(14,26,43,.05), 0 10px 26px rgba(14,26,43,.06);
     --shadow-lg:0 24px 70px rgba(14,26,43,.24);
   }
   :root[data-theme="dark"]{
     --bg:#070c15; --surface:#0f1826; --surface-2:#131f30; --elev:#14202f;
-    --border:#1f2b3e; --border-strong:#2c3c54; --text:#e7eefb; --muted:#93a3bd; --faint:#5f708a;
+    --border:#1f2b3e; --border-strong:#2c3c54; --text:#e7eefb; --muted:#93a3bd; --faint:#8494ad;
     --accent:#2dd4bf; --accent-strong:#5eead4; --accent-ink:#04120f; --accent-soft:rgba(45,212,191,.12);
     --up:#34d399; --degraded:#fbbf24; --down:#f87171; --pending:#7c8aa5; --anom:#a78bfa;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.38);
@@ -361,6 +361,59 @@ _PAGE = r"""<!doctype html>
   .aitem .t{color:var(--faint);font-family:var(--mono);font-size:11px;flex:none;}
   .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px;}
   .legend i{display:inline-block;width:14px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle;}
+  /* The server enforces every role; this only hides controls that would answer 403. */
+  body.role-viewer .need-operator, body:not(.role-admin) .need-admin{display:none !important;}
+  .sub{font-size:13px;font-weight:650;margin:18px 0 8px;}
+  .ok{color:var(--up);font-size:13px;min-height:18px;margin-top:6px;}
+  .urow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;
+    border:1px solid var(--border);border-radius:10px;background:var(--surface-2);}
+  .urow .nm{font-weight:650;}
+  .urow .meta{font-size:12px;color:var(--muted);flex:1 1 100%;order:9;}
+  .btn{white-space:nowrap;}
+  @media (max-width:1100px){ .topbar{flex-wrap:wrap;row-gap:8px;} }
+  .urow select{font:inherit;font-size:12.5px;padding:3px 6px;border-radius:7px;
+    border:1px solid var(--border-strong);background:var(--surface);color:var(--text);}
+  .audit{display:grid;grid-template-columns:auto auto auto 1fr;gap:6px 12px;font-size:12.5px;
+    align-items:baseline;max-height:56vh;overflow:auto;}
+  .audit .t{font-family:var(--mono);font-size:11px;color:var(--faint);}
+  .audit .act{font-family:var(--mono);font-size:11.5px;}
+  .audit .det{color:var(--muted);overflow-wrap:anywhere;}
+  @media (max-width:640px){ .audit{grid-template-columns:auto 1fr;} }
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  button.tlink{background:none;border:none;font:inherit;color:inherit;padding:0;}
+  .tlink:focus-visible,.badge:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);
+    outline-offset:2px;}
+  .filters{display:flex;flex-wrap:wrap;gap:6px;margin:0 2px 12px;}
+  .filters:empty{display:none;}
+  .chip{font:inherit;font-size:12px;border:1px solid var(--border-strong);background:var(--surface);
+    color:var(--muted);border-radius:999px;padding:4px 11px;cursor:pointer;}
+  .chip b{color:var(--text);font-weight:650;margin-left:5px;}
+  .chip.on{border-color:var(--accent);color:var(--accent-strong);background:var(--accent-soft);}
+  .chip:disabled{opacity:.5;cursor:default;}
+  .apierr{display:none;margin:0 0 16px;padding:10px 14px;border-radius:10px;font-size:13px;
+    border:1px solid color-mix(in srgb,var(--down) 45%,transparent);
+    background:color-mix(in srgb,var(--down) 10%,transparent);}
+  .apierr.show{display:block;}
+  .inc{display:grid;grid-template-columns:auto auto auto 1fr;gap:6px 12px;font-size:12.5px;
+    align-items:baseline;}
+  .inc .t{font-family:var(--mono);font-size:11px;color:var(--faint);}
+  .inc .why{color:var(--muted);min-width:0;overflow-wrap:anywhere;}
+  @media (max-width:640px){
+    .topbar{flex-wrap:wrap;gap:8px;padding:10px 14px;}
+    .brand{flex-basis:100%;}
+    .topbar .btn{padding:6px 10px;font-size:12.5px;}
+    main{padding:16px 12px 60px;}
+    .summary{grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:18px;}
+    .tile{padding:9px 10px;}
+    .tile .k{font-size:9.5px;letter-spacing:.02em;}
+    .tile .v{font-size:19px;}
+    .chead{flex-wrap:wrap;}
+    .cfoot{flex-direction:column;align-items:flex-start;}
+    .acts{flex-wrap:wrap;}
+    .inc{grid-template-columns:auto auto 1fr;}
+    .inc .why{grid-column:1 / -1;}
+  }
 </style>
 </head>
 <body>
@@ -371,16 +424,23 @@ _PAGE = r"""<!doctype html>
   </div>
   <span class="whoami" id="whoami"></span>
   <button class="btn icon" id="themeBtn" title="Toggle theme" onclick="toggleTheme()">🌙</button>
+  <button class="btn" onclick="window.open('/api/trust-report?days=30','_blank','noopener')"
+    title="Availability, tool changes and who approved them, findings: last 30 days">Trust report</button>
   <button class="btn" onclick="location.href='/api/export'">Export</button>
-  <button class="btn" onclick="openImport()">Import</button>
-  <button class="btn primary" onclick="openForm()">＋ Add server</button>
+  <button class="btn need-operator" onclick="openImport()">Import</button>
+  <button class="btn primary need-operator" onclick="openForm()">＋ Add server</button>
+  <button class="btn need-admin" id="usersBtn" style="display:none" onclick="openUsers()">Users</button>
+  <button class="btn need-admin" id="auditBtn" style="display:none" onclick="openAudit()">Audit</button>
   <button class="btn" id="tokensBtn" style="display:none" onclick="openTokens()">API tokens</button>
+  <button class="btn" id="accountBtn" style="display:none" onclick="openAccount()">Account</button>
   <button class="btn" id="logoutBtn" style="display:none" onclick="logout()">Logout</button>
 </div>
 
 <main>
+  <div class="apierr" id="apiErr" role="status" aria-live="polite"></div>
   <div class="summary" id="summary"></div>
   <div class="board-head"><h2>Monitored servers</h2><span class="hint">auto-refresh · 5s</span></div>
+  <div class="filters" id="filters" role="toolbar" aria-label="Filter servers"></div>
   <div class="cards" id="rows"><div class="empty">Loading…</div></div>
 </main>
 
@@ -469,7 +529,7 @@ _PAGE = r"""<!doctype html>
     <div class="err" id="changesErr"></div>
     <div class="buttons">
       <button class="btn" onclick="closeChanges()">Close</button>
-      <button class="btn primary" id="ackBtn" onclick="ackChanges()">✓ Approve changes</button>
+      <button class="btn primary need-operator" id="ackBtn" onclick="ackChanges()">✓ Approve changes</button>
     </div>
   </div>
 </div>
@@ -479,7 +539,8 @@ _PAGE = r"""<!doctype html>
     <h2>API tokens</h2>
     <p class="lead">For the <code>mcpsonar</code> CLI and scripts: set <code>MCPSONAR_URL</code>
       and <code>MCPSONAR_TOKEN</code>. A token is shown once; only its hash is stored.
-      <b>read</b> tokens can only read; <b>write</b> tokens can also change servers.</p>
+      <b>read</b> tokens can only read; <b>write</b> tokens can also change servers, up to
+      your role (a token never acts as an admin).</p>
     <div class="toklist" id="tokList"></div>
     <div id="newTok" class="newtok" style="display:none"></div>
     <div class="row2">
@@ -492,6 +553,63 @@ _PAGE = r"""<!doctype html>
     <div class="buttons">
       <button class="btn" onclick="closeTokens()">Close</button>
       <button class="btn primary" onclick="createToken()">Create token</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="accountOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="accTitle">
+    <h2 id="accTitle">Your account</h2>
+    <p class="lead" id="accLead"></p>
+    <h3 class="sub">Change password</h3>
+    <div class="row2">
+      <div class="field"><label for="a_cur">Current password</label>
+        <input id="a_cur" type="password" autocomplete="current-password"></div>
+      <div class="field"><label for="a_new">New password (8+ characters)</label>
+        <input id="a_new" type="password" autocomplete="new-password"></div>
+    </div>
+    <div class="err" id="accErr"></div><div class="ok" id="accOk"></div>
+    <div class="buttons"><button class="btn primary" onclick="changePassword()">Change password</button></div>
+    <h3 class="sub">Signed-in sessions</h3>
+    <div class="toklist" id="sessList"></div>
+    <div class="buttons"><button class="btn" onclick="closeOverlay('accountOverlay')">Close</button></div>
+  </div>
+</div>
+
+<div class="overlay" id="usersOverlay">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="usersTitle">
+    <h2 id="usersTitle">Users</h2>
+    <p class="lead"><b>viewer</b> sees everything; <b>operator</b> also checks servers, manages
+      HTTP servers and approves tool changes; <b>admin</b> also manages stdio servers, users,
+      exports with secrets and the audit log. The last admin always stays.</p>
+    <div class="toklist" id="userList"></div>
+    <h3 class="sub">Add a user</h3>
+    <div class="row2">
+      <div class="field"><label for="u_name">Username</label><input id="u_name" autocomplete="off"></div>
+      <div class="field"><label for="u_pw">Password (8+ characters)</label>
+        <input id="u_pw" type="password" autocomplete="new-password"></div>
+      <div class="field"><label for="u_role">Role</label><select id="u_role">
+        <option value="viewer">viewer</option><option value="operator">operator</option>
+        <option value="admin">admin</option></select></div>
+    </div>
+    <div class="err" id="userErr"></div>
+    <div class="buttons">
+      <button class="btn" onclick="closeOverlay('usersOverlay')">Close</button>
+      <button class="btn primary" onclick="addUser()">Add user</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="auditOverlay">
+  <div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="auditTitle">
+    <h2 id="auditTitle">Audit log</h2>
+    <p class="lead">Who did what, newest first. Append-only: the database refuses to change or
+      delete an entry. Credentials are never recorded.</p>
+    <div class="audit" id="auditList"></div>
+    <div class="err" id="auditErr"></div>
+    <div class="buttons">
+      <button class="btn" id="auditMore" onclick="loadAudit(true)">Load older</button>
+      <button class="btn" onclick="closeOverlay('auditOverlay')">Close</button>
     </div>
   </div>
 </div>
@@ -537,7 +655,10 @@ async function api(method, path, body) {
   if (body !== undefined) { opt.headers["Content-Type"]="application/json"; opt.body=JSON.stringify(body); }
   const r = await fetch(path, opt);
   if (!r.ok) { let d; try { d = await r.json(); } catch(e){}
-    throw new Error(d && d.detail ? JSON.stringify(d.detail) : (r.status+" "+r.statusText)); }
+    const detail = d && d.detail;
+    const err = new Error(typeof detail === "string" ? detail
+      : detail ? JSON.stringify(detail) : (r.status+" "+r.statusText));
+    err.status = r.status; throw err; }
   return r.status === 204 ? null : r.json();
 }
 
@@ -558,7 +679,10 @@ function heartbeat(recent){
     const bg=a?`linear-gradient(${anom} 0 6px, ${sc(e.status)} 6px)`:sc(e.status);
     bars+=`<span class="hb" style="background:${bg}" `+
       `title="${e.status} · ${Math.round(e.latency_ms)}ms${a?" · "+kinds.join(", ").replace(/_/g," "):""}"></span>`; });
-  return `<div class="heartbeat">${bars}</div>`;
+  const n={up:0,degraded:0,down:0}; arr.forEach(e=>{ if(n[e.status]!=null) n[e.status]++; });
+  const label=arr.length?`Last ${arr.length} checks: ${n.up} up, ${n.degraded} degraded, ${n.down} down`
+    :"No checks yet";
+  return `<div class="heartbeat" role="img" aria-label="${label}">${bars}</div>`;
 }
 function pill(status){ return `<span class="pill ${status}"><span class="d"></span>${status}</span>`; }
 
@@ -578,17 +702,61 @@ function renderSummary(list){
 }
 
 let SERVERS = {};
+let LIST = [], LAST_OK = null;
+let FILTER = (()=>{ try { return localStorage.getItem("mcpsonar-filter") || "all"; } catch(e) { return "all"; } })();
+const st = s => s.event ? s.event.status : "pending";
+const FILTERS = [
+  ["all", "All", s => true],
+  ["down", "Down", s => st(s) === "down"],
+  ["degraded", "Degraded", s => st(s) === "degraded"],
+  ["review", "To review", s => s.event && s.event.tool_changes > 0],
+  ["findings", "Findings", s => s.event && s.event.tool_risks > 0],
+  ["latency", "Latency", s => (s.recent||[]).some(e => (e.anomalies||[]).some(k => k === "latency_spike" || k === "latency_shift"))],
+  ["auth", "Auth required", s => s.event && s.event.auth_required],
+  ["paused", "Paused", s => !s.enabled],
+];
+function setFilter(key){ FILTER = key; try { localStorage.setItem("mcpsonar-filter", key); } catch(e) {}
+  renderFilters(LIST); renderList(); }
+function renderFilters(list){
+  if (!list.length) { $("filters").innerHTML = ""; return; }
+  // Only the filters that would show something (plus "All" and the active one).
+  $("filters").innerHTML = FILTERS.map(([key, label, keep]) => {
+    const n = list.filter(keep).length, on = FILTER === key;
+    if (!n && key !== "all" && !on) return "";
+    return `<button class="chip${on?" on":""}" aria-pressed="${on}" `+
+      `onclick="setFilter('${key}')">${label}<b>${n}</b></button>`; }).join("");
+}
+function apiProblem(e){
+  if (e && e.status === 401) { location.href = "/login"; return; }
+  const why = e && e.status ? e.message : "network error";
+  const since = LAST_OK ? ` Showing the data from ${LAST_OK.toLocaleTimeString()}.` : "";
+  $("apiErr").innerHTML = `<b>Can't reach the MCPSonar API</b> (${esc(why)}). Retrying every 5 s.${since}`;
+  $("apiErr").classList.add("show");
+  $("sub").textContent = "connection problem";
+  if (!LAST_OK) $("rows").innerHTML = '<div class="empty">Couldn\'t load the servers yet. Retrying…</div>';
+}
 async function refresh() {
   let data;
-  try { data = await api("GET", "/api/status"); } catch(e) { return; }
+  try { data = await api("GET", "/api/status"); } catch(e) { apiProblem(e); return; }
+  LAST_OK = new Date(); $("apiErr").classList.remove("show");
   const ids = Object.keys(data);
-  const list = ids.map(id=>({id, ...data[id]}));
-  SERVERS = {}; list.forEach(s=>SERVERS[s.id]=s.name);
+  LIST = ids.map(id=>({id, ...data[id]}));
+  SERVERS = {}; LIST.forEach(s=>SERVERS[s.id]=s.name);
   $("sub").textContent = ids.length ? (ids.length+" server"+(ids.length===1?"":"s")+" · Live") : "No servers yet";
-  renderSummary(list);
+  renderSummary(LIST);
+  renderFilters(LIST);
+  renderList();
+}
+function renderList() {
   const tb = $("rows");
-  if (!ids.length) {
+  if (!LIST.length) {
     tb.innerHTML = '<div class="empty"><div class="big">🛰️</div>No servers yet.<br>Click <b>＋ Add server</b> to start monitoring an MCP.</div>';
+    return;
+  }
+  const keep = (FILTERS.find(f => f[0] === FILTER) || FILTERS[0])[2];
+  const list = LIST.filter(keep);
+  if (!list.length) {
+    tb.innerHTML = '<div class="empty">No server matches this filter. <button class="chip" onclick="setFilter(\'all\')">Show all</button></div>';
     return;
   }
   tb.innerHTML = list.map(s => {
@@ -614,7 +782,7 @@ async function refresh() {
     if (la && la.kind!=="tool_change") badges += `<button class="badge anom" onclick="openHistory('${s.id}')">📈 ${esc(la.detail)} <span class="when">· ${relTime(la.checked_at)}</span></button>`;
     return `<div class="card ${status}">
       <div class="chead">
-        <span class="sdot ${status}"></span>
+        <span class="sdot ${status}" aria-hidden="true"></span>
         <span class="cname">${esc(s.name)}${paused}</span>
         <span class="tport">${esc(s.transport)}</span>
         ${pill(status)}
@@ -627,17 +795,17 @@ async function refresh() {
           <span class="target">${esc(s.target)}</span>
           <span class="spec">spec ${spec}</span>
           ${baseline}
-          <span class="tlink" onclick="openTools('${s.id}')">🔧 <b>${tAvail}</b> tools${probed}</span>
+          <button class="tlink" onclick="openTools('${s.id}')" aria-label="Tools of ${esc(s.name)}">🔧 <b>${tAvail}</b> tools${probed}</button>
           <span>checked <b>${when}</b>${detail}</span>
         </div>
         <div class="acts">
-          <button class="act" onclick="openTools('${s.id}')">Tools</button>
-          <button class="act" onclick="openChanges('${s.id}')">Changes</button>
-          <button class="act" onclick="openHistory('${s.id}')">History</button>
-          <button class="act" onclick="checkNow('${s.id}')">Check</button>
-          <button class="act" onclick="editServer('${s.id}')">Edit</button>
-          <button class="act" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
-          <button class="act danger" onclick="del('${s.id}')">Delete</button>
+          <button class="act" aria-label="Tools · ${esc(s.name)}" onclick="openTools('${s.id}')">Tools</button>
+          <button class="act" aria-label="Changes · ${esc(s.name)}" onclick="openChanges('${s.id}')">Changes</button>
+          <button class="act" aria-label="History · ${esc(s.name)}" onclick="openHistory('${s.id}')">History</button>
+          <button class="act need-operator" aria-label="Check · ${esc(s.name)}" onclick="checkNow('${s.id}')">Check</button>
+          <button class="act need-operator" aria-label="Edit · ${esc(s.name)}" onclick="editServer('${s.id}')">Edit</button>
+          <button class="act need-operator" aria-label="${s.enabled?"Pause":"Resume"} · ${esc(s.name)}" onclick="togglePause('${s.id}',${s.enabled})">${s.enabled?"Pause":"Resume"}</button>
+          <button class="act danger need-operator" aria-label="Delete · ${esc(s.name)}" onclick="del('${s.id}')">Delete</button>
         </div>
       </div>
     </div>`;
@@ -660,7 +828,15 @@ function parseLines(text, sep){
 }
 function dumpLines(obj, sep){ return Object.entries(obj||{}).map(([k,v])=>k+sep+v).join("\n"); }
 
+function limitByRole(){
+  const stdio = $("f_transport").querySelector('option[value="stdio"]');
+  stdio.disabled = ROLE !== "admin";
+  stdio.textContent = ROLE === "admin" ? "stdio (local process)" : "stdio (local process) — admins only";
+  const write = $("t_scope").querySelector('option[value="write"]');
+  write.disabled = ROLE === "viewer";
+}
 function openForm() {
+  limitByRole();
   $("formTitle").textContent = "Add server";
   ["f_id","f_name","f_url","f_headers","f_command","f_args","f_env","f_tools"].forEach(i=>$(i).value="");
   $("f_transport").value="http"; onTransport();
@@ -810,8 +986,26 @@ function renderCharts(hist, ins){
     </div>
     <div class="clabel">Status timeline (oldest → newest)</div>
     <svg viewBox="0 0 ${W} 14" width="100%" style="display:block">${strip}</svg>
+    <p style="margin:10px 0 0;font-size:12.5px"><a href="/api/trust-report?days=30&server=${encodeURIComponent(histId)}" target="_blank" rel="noopener">Trust report for this server (30 days) →</a></p>
+    <div class="clabel">Incidents in this window (${(ins.incidents||[]).length})</div>
+    ${renderIncidents(ins.incidents||[])}
     <div class="clabel">Anomalies in this window (${(ins.anomalies||[]).length})</div>
     ${alist?`<div class="alist">${alist}</div>`:'<p class="muted" style="font-size:12.5px;margin:4px 0">None — behaving like its usual self.</p>'}`;
+}
+
+function duration(fromIso, toIso){
+  const s = Math.max(0, (new Date(toIso) - new Date(fromIso)) / 1000);
+  if (s < 90) return Math.round(s) + " s";
+  const m = Math.round(s / 60); if (m < 90) return m + " min";
+  const h = Math.floor(m / 60), r = m % 60; return h + " h" + (r ? " " + r + " min" : "");
+}
+function renderIncidents(list){
+  if (!list.length) return '<p class="muted" style="font-size:12.5px;margin:4px 0">None — up for the whole window.</p>';
+  return `<div class="inc">${list.slice().reverse().map(i => {
+    const end = i.recovered ? `back up after <b>${duration(i.started, i.recovered)}</b>`
+      : `<b>ongoing</b> · ${duration(i.started, new Date().toISOString())} so far`;
+    return `<span class="t">${fmtTime(i.started)}</span>${pill(i.worst)}<span>${end} · ${i.checks} check${i.checks===1?"":"s"}</span>`+
+      `<span class="why">${esc(i.detail||"")}</span>`; }).join("")}</div>`;
 }
 
 /* tools */
@@ -935,13 +1129,14 @@ async function doImport(){
 
 /* API tokens */
 function closeTokens(){ $("tokensOverlay").classList.remove("open"); $("newTok").style.display="none"; $("newTok").textContent=""; }
-function openTokens(){ $("tokErr").textContent=""; $("t_name").value=""; $("t_days").value=""; loadTokens(); $("tokensOverlay").classList.add("open"); }
+function openTokens(){ limitByRole(); $("tokErr").textContent=""; $("t_name").value=""; $("t_days").value=""; loadTokens(); $("tokensOverlay").classList.add("open"); }
 const fmtDate = t => t ? new Date(t*1000).toLocaleString() : "never";
 async function loadTokens(){
   try{
     const list=await api("GET","/api/tokens");
     $("tokList").innerHTML = list.length ? list.map(t=>
       `<div class="tok"><span class="nm">${esc(t.name)}</span><span class="badge">${esc(t.scope)}</span>`+
+      (ROLE==="admin" && t.created_by!==ME ? `<span class="badge" style="cursor:default">${esc(t.created_by)}</span>` : "")+
       `<span class="meta">created ${esc(fmtDate(t.created_at))} · expires ${esc(fmtDate(t.expires_at))} · last used ${esc(t.last_used_at?fmtDate(t.last_used_at):"never")}</span>`+
       `<button class="btn" onclick="revokeToken('${esc(t.id)}')">Revoke</button></div>`).join("")
       : '<p class="muted">No tokens yet.</p>';
@@ -964,14 +1159,122 @@ async function revokeToken(id){
 
 /* auth */
 async function logout(){ await fetch("/api/auth/logout",{method:"POST"}); location.href="/login"; }
+let ROLE = "admin", ME = null;
+function closeOverlay(id){ $(id).classList.remove("open"); }
 async function initAuth(){
   try{
     const s=await (await fetch("/api/auth/status")).json();
+    ROLE = s.role || "admin"; ME = s.username;
+    document.body.classList.add("role-"+ROLE);
     if(s.auth_enabled){
-      $("logoutBtn").style.display=""; $("tokensBtn").style.display="";
-      if(s.username){ $("whoami").innerHTML='<span class="av">'+esc(s.username[0])+'</span>'+esc(s.username); }
+      for (const id of ["logoutBtn", "tokensBtn", "accountBtn", "usersBtn", "auditBtn"]) $(id).style.display="";
+      if(s.username){ $("whoami").innerHTML='<span class="av">'+esc(s.username[0])+'</span>'+esc(s.username)+
+        ' <span class="badge" style="cursor:default">'+esc(ROLE)+'</span>'; }
     }
   }catch(e){}
+}
+
+/* account */
+function openAccount(){
+  $("accLead").textContent = `Signed in as ${ME} (${ROLE}).`;
+  for (const id of ["a_cur", "a_new"]) $(id).value = "";
+  $("accErr").textContent = ""; $("accOk").textContent = "";
+  $("accountOverlay").classList.add("open"); loadSessions();
+}
+async function changePassword(){
+  $("accErr").textContent = ""; $("accOk").textContent = "";
+  try {
+    await api("POST", "/api/auth/password", {current_password: $("a_cur").value, new_password: $("a_new").value});
+    for (const id of ["a_cur", "a_new"]) $(id).value = "";
+    $("accOk").textContent = "Password changed. Your other sessions were signed out.";
+    loadSessions();
+  } catch(e) { $("accErr").textContent = "Error: " + e.message; }
+}
+function shortAgent(ua){
+  if (!ua) return "unknown browser";
+  const m = ua.match(/(Edg|Firefox|Chrome|Safari)\/[\d.]+/); const os = ua.match(/Windows|Mac OS X|Android|iPhone|Linux/);
+  return (m ? m[0].split("/")[0].replace("Edg", "Edge") : ua.slice(0, 40)) + (os ? " · " + os[0] : "");
+}
+async function loadSessions(){
+  try {
+    const list = await api("GET", "/api/auth/sessions");
+    $("sessList").innerHTML = list.map(x =>
+      `<div class="urow"><span class="nm">${esc(shortAgent(x.user_agent))}</span>`+
+      (x.current ? '<span class="badge" style="cursor:default">this browser</span>' : "")+
+      `<span class="meta">${esc(x.client || "?")} · signed in ${esc(relTime(new Date(x.created_at*1000).toISOString()))}</span>`+
+      (x.current ? "" : `<button class="btn" onclick="endSession('${esc(x.id)}')">Sign out</button>`)+
+      `</div>`).join("");
+  } catch(e) { $("accErr").textContent = "Error: " + e.message; }
+}
+async function endSession(id){
+  try { await api("DELETE", "/api/auth/sessions/" + encodeURIComponent(id)); loadSessions(); }
+  catch(e) { $("accErr").textContent = "Error: " + e.message; }
+}
+
+/* users (admin) */
+function openUsers(){ $("userErr").textContent = ""; $("usersOverlay").classList.add("open"); loadUsers(); }
+async function loadUsers(){
+  try {
+    const list = await api("GET", "/api/users");
+    $("userList").innerHTML = list.map(u => {
+      const q = encodeURIComponent(u.username), opts = ["viewer", "operator", "admin"].map(r =>
+        `<option value="${r}"${r===u.role?" selected":""}>${r}</option>`).join("");
+      return `<div class="urow"><span class="nm">${esc(u.username)}${u.username===ME?" (you)":""}</span>`+
+        `<select aria-label="Role of ${esc(u.username)}" onchange="setRole('${q}', this.value)">${opts}</select>`+
+        `<span class="meta">${u.sessions} session${u.sessions===1?"":"s"} · ${u.tokens} token${u.tokens===1?"":"s"} · since ${esc(fmtTime(u.created_at))}</span>`+
+        `<button class="btn" onclick="resetPassword('${q}')">Reset password</button>`+
+        (u.username===ME ? "" : `<button class="btn" onclick="deleteUser('${q}')">Delete</button>`)+`</div>`; }).join("");
+  } catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+async function addUser(){
+  $("userErr").textContent = "";
+  try {
+    await api("POST", "/api/users", {username: $("u_name").value.trim(), password: $("u_pw").value, role: $("u_role").value});
+    $("u_name").value = ""; $("u_pw").value = ""; loadUsers();
+  } catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+async function setRole(q, role){
+  $("userErr").textContent = "";
+  try { await api("PATCH", "/api/users/" + q, {role}); }
+  catch(e) { $("userErr").textContent = "Error: " + e.message; }
+  loadUsers();
+}
+async function resetPassword(q){
+  const pw = prompt("New password for " + decodeURIComponent(q) + " (8+ characters). Their sessions and API tokens end.");
+  if (!pw) return;
+  try { const r = await api("POST", "/api/users/" + q + "/password", {password: pw});
+    $("userErr").textContent = ""; loadUsers();
+    alert("Password set. " + r.tokens_revoked + " API token(s) revoked."); }
+  catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+async function deleteUser(q){
+  if (!confirm("Delete " + decodeURIComponent(q) + "? Their sessions and API tokens end too.")) return;
+  try { await api("DELETE", "/api/users/" + q); loadUsers(); }
+  catch(e) { $("userErr").textContent = "Error: " + e.message; }
+}
+
+/* audit (admin) */
+let AUDIT_LAST = null;
+function openAudit(){ AUDIT_LAST = null; $("auditList").innerHTML = ""; $("auditErr").textContent = "";
+  $("auditOverlay").classList.add("open"); loadAudit(false); }
+function auditDetail(e){
+  const d = e.detail || {};
+  if (e.action === "tool_changes.approved")
+    return `${d.server||""}: ` + (d.changes||[]).map(c => `${c.kind} ${c.tool}` +
+      (c.fields && c.fields.length ? ` (${c.fields.join(", ")})` : "") + (c.findings ? ` · ${c.findings} finding(s)` : "")).join("; ");
+  return Object.entries(d).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ");
+}
+async function loadAudit(more){
+  try {
+    const q = more && AUDIT_LAST ? "?before=" + AUDIT_LAST : "";
+    const list = await api("GET", "/api/audit" + q);
+    if (list.length) AUDIT_LAST = list[list.length - 1].id;
+    $("auditMore").disabled = list.length < 200;
+    $("auditList").innerHTML += list.map(e =>
+      `<span class="t">${esc(fmtTime(e.at))}</span><span>${esc(e.actor)}</span>`+
+      `<span class="act">${esc(e.action)}</span><span class="det">${esc([e.target, auditDetail(e)].filter(Boolean).join(" · "))}</span>`).join("");
+    if (!$("auditList").innerHTML) $("auditList").innerHTML = '<span class="muted">Nothing recorded yet.</span>';
+  } catch(e) { $("auditErr").textContent = "Error: " + e.message; }
 }
 
 /* close modals on overlay click / Escape */

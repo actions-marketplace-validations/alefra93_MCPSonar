@@ -78,6 +78,8 @@ servers:
     webhooks:
       - { type: uptime_kuma, push_url: "https://kuma.example.com/api/push/<token>" }
       - { type: generic, url: "https://hooks.example.com/x", "on": [down, degraded] }
+      - { type: slack, url: "https://hooks.slack.com/services/<...>" }
+      - { type: discord, url: "https://discord.com/api/webhooks/<...>" }
 ```
 
 ### Tool probes
@@ -111,6 +113,58 @@ of the last answer and reports a `response_drift` anomaly when it changes.
   observability signal: it does not change the server's status and needs no review, unlike
   tool-definition changes.
 
+### Notifications
+
+| `type` | Sends | When |
+|---|---|---|
+| `slack`, `discord`, `email` | A short message | Once per **change** (see below) |
+| `generic` | The raw `CheckEvent` JSON (POST) | Every check in an `on` status, every new anomaly, and once on recovery |
+| `uptime_kuma` | A push (GET) | Every check (Kuma keeps its own state) |
+
+Slack and Discord speak in changes, not checks:
+
+- the server **enters** a status listed in `on` (default `[down, degraded]`): one message,
+  with the reason. Staying down sends nothing more.
+- it is **back up** (`on_recovery`, default on): one message with how long it was out,
+  e.g. "calculator is back up after 12 min down".
+- something **new** was detected (`on_anomaly`, default on): a tool change, the first check
+  of a latency episode, a confirmed shift, flapping, a response drift. Checks that only
+  continue an episode (`ongoing`) are never re-notified.
+
+`degraded` includes an unreviewed tool change, so a rug pull produces one message when it
+happens and one when it is reviewed.
+
+Email goes through your SMTP server:
+
+```yaml
+    webhooks:
+      - type: email
+        host: smtp.example.com
+        port: 587                    # 587 with STARTTLS (default), or 465 with security: tls
+        username: mcpsonar@example.com
+        password: "${env:MCPSONAR_SECRET_SMTP}"   # a secret reference; see above
+        sender: mcpsonar@example.com
+        to: [ops@example.com]
+```
+
+- **TLS is required.** With `starttls` (the default), a server that does not offer STARTTLS
+  is an error: MCPSonar never falls back to plain text, and never sends the password
+  unencrypted. `security: none` is accepted only for a relay on `localhost`.
+- **The outbound policy applies.** The SMTP host is resolved and checked like any
+  destination. MCPSonar then connects only to an allowed address, while TLS still verifies
+  the certificate against the host name.
+- **The password** is masked like any credential. As a secret reference it is never stored,
+  and it is resolved for each message.
+
+Each message can link to your instance. Set `MCPSONAR_PUBLIC_URL` (e.g.
+`https://mcpsonar.example.com`) to add it.
+
+**Treat message text as untrusted.** Tool names, error messages and change details come
+from the monitored servers. MCPSonar removes invisible characters and line breaks and
+truncates them. For Slack it escapes `<`, `>` and `&` (no `<!channel>`, no disguised
+links). For Discord it escapes markdown and disables mentions. Webhook URLs must be
+`https://`; they are secrets, so they are masked in the API, the dashboard and the logs.
+
 ### stdio servers: the trust boundary
 
 A stdio server is a **command mcpsonar executes** on its host, at every check, with
@@ -124,6 +178,41 @@ so its own secrets are not inherited. That is still full code execution:
   capabilities) or monitor the server over HTTP from a separate sandbox.
 - Without a login (`--no-auth`), stdio servers cannot be added over the API at all unless
   `--allow-stdio-api` is given; seed them from YAML instead.
+
+## Accounts and roles
+
+The first account, created with the setup link, is an **admin**. Admins add other accounts
+(`/api/users`, or the dashboard) with one of three roles:
+
+| | viewer | operator | admin |
+|---|---|---|---|
+| See servers, history, tools, changes, findings | ✓ | ✓ | ✓ |
+| Check now, approve tool changes | | ✓ | ✓ |
+| Add, edit, pause, delete HTTP/SSE servers; import | | ✓ | ✓ |
+| Add or change a **stdio** server's command, arguments or environment | | | ✓ |
+| Export with secrets (`/api/export?include_secrets=true`) | | | ✓ |
+| Accounts, other people's API tokens, the audit log | | | ✓ |
+
+- **stdio is admin-only** because a stdio server runs a command on the monitoring host;
+  changing its environment can be enough to run code (`NODE_OPTIONS`, …). Operators can
+  still rename or pause one.
+- **The last admin** can be neither demoted nor deleted.
+- **Your own account:** everyone can change their password (other sessions end), list
+  their sessions and end any of them, and create API tokens: read tokens for a viewer,
+  read or write for an operator or admin.
+- **An admin can reset someone's password.** That ends the person's sessions and revokes
+  their API tokens.
+
+**API tokens act with the lower of their scope and their owner's current role**: a read
+token is a viewer, a write token at most an operator. Admin actions always need a signed-in
+dashboard session. Demoting an account demotes its tokens, and deleting it, even directly in
+the database, disables them.
+
+**The audit log** (`GET /api/audit`, admins) records logins, account and token changes,
+server changes, imports, exports with secrets, and every approval of tool changes: who,
+when, and which tools. It never contains credentials. Server URLs are masked; for stdio
+servers only the command is kept, not its arguments. The database itself refuses UPDATE and
+DELETE on it (triggers), so no API can rewrite it.
 
 ## Secrets: what is shown, stored and exported
 

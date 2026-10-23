@@ -2,7 +2,9 @@
 
 Fires for the statuses listed in ``on`` (default down + degraded) and, when ``on_anomaly`` is
 set (the default), for any check that detected something new — a latency anomaly, flapping,
-a tool-definition change or a response drift — whatever its status. Retries transient
+a tool-definition change or a response drift — whatever its status; and, when
+``on_recovery`` is set (the default), once when the server comes back up from one of the
+``on`` statuses (``previous_status`` in the payload says from what). Retries transient
 failures up to ``max_retries`` attempts with exponential backoff, then raises so the caller
 can log the final failure.
 """
@@ -32,17 +34,21 @@ class GenericWebhookAdapter(BaseAdapter):
         max_retries: int = 3,
         backoff: float = 0.5,
         on_anomaly: bool = True,
+        on_recovery: bool = True,
     ) -> None:
         super().__init__(client)
         self._url = url
         self._on = set(on)
         self._on_anomaly = on_anomaly
+        self._on_recovery = on_recovery
         self._max_retries = max_retries
         self._backoff = backoff
 
     async def send(self, event: CheckEvent) -> None:
         new = any(not a.ongoing for a in event.anomalies)  # an episode is notified once
-        if event.status not in self._on and not (self._on_anomaly and new):
+        recovered = (self._on_recovery and event.status == CheckStatus.UP
+                     and event.previous_status in self._on)
+        if event.status not in self._on and not (self._on_anomaly and new) and not recovered:
             return  # nothing this webhook cares about
 
         payload = event.model_dump(mode="json")

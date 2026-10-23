@@ -113,3 +113,47 @@ async def test_api_status_with_a_latency_shift_as_last_anomaly():
         assert last["kind"] == "latency_shift" and last["since"].startswith("2026-01-01T12:00")
     await scheduler.stop()
     await storage.close()
+
+
+async def test_insights_report_incidents_from_start_to_recovery():
+    from datetime import UTC, datetime, timedelta
+
+    storage = await Storage.open(":memory:")
+    server = await storage.create_server("Delta", ServerConfig(url="http://127.0.0.1:8000/mcp"))
+    t0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    for minute, status, detail in [(0, "up", None), (1, "down", "connection refused"),
+                                   (2, "degraded", None), (3, "up", None), (4, "down", "503")]:
+        await storage.record_check(CheckEvent(server_id=server.id, status=status, latency_ms=5,
+                                              checked_at=t0 + timedelta(minutes=minute),
+                                              detail=detail))
+    scheduler = Scheduler(storage, store := StateStore())
+    app = create_app(storage, store, scheduler, require_auth=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        incidents = (await client.get(f"/api/servers/{server.id}/insights")).json()["incidents"]
+        page = (await client.get("/")).text
+    assert [(i["worst"], i["checks"], i["detail"]) for i in incidents] == [
+        ("down", 2, "connection refused"), ("down", 1, "503")]
+    assert incidents[0]["recovered"].startswith("2026-01-01T12:03")
+    assert incidents[1]["recovered"] is None  # still ongoing
+    # the dashboard has its filter bar, API error banner and incident view
+    assert 'id="filters"' in page and 'id="apiErr"' in page and "renderIncidents" in page
+    await scheduler.stop()
+    await storage.close()
+
+
+async def test_dashboard_has_role_aware_controls_and_team_dialogs():
+    storage = await Storage.open(":memory:")
+    scheduler = Scheduler(storage, store := StateStore())
+    app = create_app(storage, store, scheduler, require_auth=False)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        page = (await client.get("/")).text
+        status = (await client.get("/api/auth/status")).json()
+    # without a login everyone is admin, so every control shows; with one, CSS hides by role
+    assert status["role"] == "admin"
+    assert "body.role-viewer .need-operator" in page and "body:not(.role-admin) .need-admin" in page
+    for marker in ('id="accountOverlay"', 'id="usersOverlay"', 'id="auditOverlay"',
+                   'class="btn primary need-operator" onclick="openForm()"',
+                   "admins only"):
+        assert marker in page, marker
+    await scheduler.stop()
+    await storage.close()

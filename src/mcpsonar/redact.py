@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from .models import ServerConfig, UptimeKumaWebhook
+from .models import EmailWebhook, ServerConfig, UptimeKumaWebhook
 from .secretref import showable
 
 REDACTED = "********"
@@ -69,7 +69,14 @@ def redact_url(url: str | None, *, whole_path: bool = False) -> str | None:
 
 
 def _webhook_url(webhook: Any) -> str:
-    return webhook.push_url if isinstance(webhook, UptimeKumaWebhook) else webhook.url
+    """The secret-bearing URL of a webhook ("" for email, whose secret is its password)."""
+    if isinstance(webhook, UptimeKumaWebhook):
+        return webhook.push_url
+    return getattr(webhook, "url", "") or ""
+
+
+def _email_key(webhook: EmailWebhook) -> tuple:
+    return (webhook.host, webhook.port, webhook.username, webhook.sender)
 
 
 def redact_config(cfg: ServerConfig) -> dict[str, Any]:
@@ -81,6 +88,10 @@ def redact_config(cfg: ServerConfig) -> dict[str, Any]:
     data["headers"] = {k: v if showable(v) else REDACTED for k, v in cfg.headers.items()}
     data["env"] = {k: v if showable(v) else REDACTED for k, v in cfg.env.items()}
     for out, webhook in zip(data["webhooks"], cfg.webhooks, strict=True):
+        if isinstance(webhook, EmailWebhook):
+            if webhook.password is not None and not showable(webhook.password):
+                out["password"] = REDACTED
+            continue
         key = "push_url" if isinstance(webhook, UptimeKumaWebhook) else "url"
         out[key] = redact_url(_webhook_url(webhook), whole_path=True)
     return data
@@ -117,6 +128,14 @@ def restore_secrets(new: ServerConfig, old: ServerConfig | None) -> ServerConfig
         update["url"] = old.url
     webhooks = []
     for wh in new.webhooks:
+        if isinstance(wh, EmailWebhook):
+            if wh.password == REDACTED and old is not None:
+                match = next((o for o in old.webhooks if isinstance(o, EmailWebhook)
+                              and _email_key(o) == _email_key(wh)), None)
+                if match is not None:
+                    wh = wh.model_copy(update={"password": match.password})
+            webhooks.append(wh)
+            continue
         url = _webhook_url(wh)
         if REDACTED in url and old is not None:
             match = next(
@@ -139,7 +158,8 @@ def restore_secrets(new: ServerConfig, old: ServerConfig | None) -> ServerConfig
 def check_no_placeholders(cfg: ServerConfig) -> None:
     """Refuse configs that would store a placeholder instead of a credential."""
     fields = [cfg.url or "", *cfg.headers.values(), *cfg.env.values(),
-              *(_webhook_url(w) for w in cfg.webhooks)]
+              *(_webhook_url(w) for w in cfg.webhooks),
+              *(w.password or "" for w in cfg.webhooks if isinstance(w, EmailWebhook))]
     if any(REDACTED in f for f in fields):
         raise RedactedValueError(
             "the configuration contains redacted placeholders (********) — it came from a "
@@ -153,8 +173,10 @@ def secret_values(cfg: ServerConfig) -> list[str]:
     for value in [*cfg.headers.values(), *cfg.env.values()]:
         found.add(value)
         found.update(m.group(0).split(None, 1)[1] for m in _BEARER.finditer(value))
+    found.update(w.password for w in cfg.webhooks
+                 if isinstance(w, EmailWebhook) and w.password)
     urls = [cfg.url] if cfg.url else []
-    urls += [_webhook_url(w) for w in cfg.webhooks]
+    urls += [u for u in (_webhook_url(w) for w in cfg.webhooks) if u]
     for url in urls:
         try:
             parts = urlsplit(url)

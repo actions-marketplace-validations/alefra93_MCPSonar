@@ -56,8 +56,10 @@ EXPECTED: dict[str, list[Report]] = {
     # sustained: the 7th slow check confirms a shift; the slow level becomes the
     # baseline, so no endless episode and no misleading recovery
     "sustained_regression": episode(40, 7)[:-1] + [(46, "latency_shift", False)],
+    # the way back is looked for from the reported shift on, so it is confirmed after a
+    # few fast checks instead of being masked by the (already reported) first change
     "regression_and_back": episode(40, 7)[:-1] + [(46, "latency_shift", False),
-                                                  (90, "latency_shift", False)],
+                                                  (86, "latency_shift", False)],
     "quantized": [],  # MAD is 0: the mean deviation and the floor keep it quiet
     "quantized_spike": episode(30, 1),
     "poisoning": _poisoning(),

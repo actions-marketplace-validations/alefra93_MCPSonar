@@ -208,9 +208,12 @@ async def test_add_keeps_secret_out_of_argv_and_output(instance, capsys, monkeyp
 
 
 async def test_add_stdio_and_input_errors(instance, capsys, monkeypatch):
-    code, out, _ = await cli(capsys, monkeypatch, instance["write"], "servers", "add", "local",
+    # A stdio server runs a command on the host: admins only, and an API token never acts
+    # as an admin (since v0.9), so even a write token is refused.
+    code, _, err = await cli(capsys, monkeypatch, instance["write"], "servers", "add", "local",
                              "--stdio", f'"{sys.executable}" "{FIXTURE}" pages', "--paused")
-    assert code == 0 and "stdio" in out and "paused" in out
+    assert code == 2 and "admin role" in err
+    assert not [s for s in await instance["storage"].list_servers() if s.name == "local"]
     monkeypatch.delenv("NOPE_VAR", raising=False)
     code, _, err = await cli(capsys, monkeypatch, instance["write"], "servers", "add", "x",
                              "--endpoint", "http://h/mcp", "--header-from-env", "A=NOPE_VAR")
@@ -300,3 +303,17 @@ async def test_history_reports_phase_and_tool_medians(instance, capsys, monkeypa
     assert code == 0 and {"handshake", "discovery", "probes", "total"} <= set(phases)
     code, out, _ = await cli(capsys, monkeypatch, instance["read"], "history", "calculator")
     assert "phases   handshake" in out
+
+
+async def test_trust_report_with_a_read_token(instance, capsys, monkeypatch, tmp_path):
+    await cli(capsys, monkeypatch, instance["write"], "check", "remote-api", "--fail-on", "never")
+    target = tmp_path / "trust.html"
+    code, out, err = await cli(capsys, monkeypatch, instance["read"], "trust-report",
+                               "remote-api", "--last", "7d", "-o", str(target))
+    assert code == 0, err
+    assert "1 server(s) written" in out
+    page = target.read_text(encoding="utf-8")
+    assert "Trust report · remote-api" in page and "not a security certification" in page
+    assert SECRET not in page  # the server's credentials never reach the report
+    code, out, _ = await cli(capsys, monkeypatch, instance["read"], "trust-report", "--json")
+    assert code == 0 and json.loads(out)["kind"] == "trust_report"

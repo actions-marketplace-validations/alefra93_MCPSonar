@@ -151,12 +151,18 @@ async def run_risks(args: Any) -> int:
         })
         return code
 
+    render_risks(found, shown, args.severity, out)
+    return code
+
+
+def render_risks(found: Inspection, shown: list[Finding], severity: str, out: Output) -> None:
+    """The text view of ``risks`` (also used by ``mcpsonar demo --scenario``)."""
     s = out.style
     out.print(f"{s.bold('mcpsonar risks')} · {found.target}")
     out.print(_server_line(found, out))
     out.print()
     if not shown:
-        out.print(f"  {s.green('No findings')} at or above {args.severity} severity "
+        out.print(f"  {s.green('No findings')} at or above {severity} severity "
                   f"in {len(found.tools)} tools.")
     for f in shown:
         info = RULES.get(f.rule)
@@ -170,4 +176,3 @@ async def run_risks(args: Any) -> int:
     counts = {k: sum(1 for f in shown if f.severity == k) for k in SEVERITY_ORDER}
     summary = ", ".join(f"{n} {k}" for k, n in counts.items() if n) or "no findings"
     out.print(f"  {summary}. {s.dim(DISCLAIMER)}")
-    return code

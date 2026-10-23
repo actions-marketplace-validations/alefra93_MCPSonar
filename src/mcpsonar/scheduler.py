@@ -117,7 +117,8 @@ class Scheduler:
 
     # ---- internals --------------------------------------------------------- #
     def _spawn(self, server: MonitoredServer) -> None:
-        self._adapters[server.id] = build_push_adapters(server.to_server_config(), self._client)
+        self._adapters[server.id] = build_push_adapters(server.to_server_config(), self._client,
+                                                        server.name)
         self._tasks[server.id] = asyncio.create_task(
             self._run_server(server), name=f"check:{server.id}"
         )
@@ -139,7 +140,8 @@ class Scheduler:
         )
         adapters = self._adapters.get(server.id)
         if adapters is None:  # e.g. a paused server checked on demand
-            adapters = build_push_adapters(server.to_server_config(), self._client)
+            adapters = build_push_adapters(server.to_server_config(), self._client,
+                                           server.name)
         await self._emit(server.id, event, adapters, secret_values(server))
         return event
 

@@ -36,6 +36,11 @@ Action** to gate CI on it.
 
 ## Try it in 60 seconds
 
+> **New here?** The [quickstart](https://github.com/alefra93/MCPSonar/blob/main/docs/quickstart.md)
+> walks you from install to a monitored server, a reviewed rug pull and a CI gate in ten
+> minutes, all local. Questions: [FAQ](https://github.com/alefra93/MCPSonar/blob/main/docs/faq.md) ·
+> [troubleshooting](https://github.com/alefra93/MCPSonar/blob/main/docs/troubleshooting.md).
+
 ```bash
 pip install git+https://github.com/alefra93/MCPSonar.git
 mcpsonar demo
@@ -43,6 +48,11 @@ mcpsonar demo
 
 Or, with [uv](https://docs.astral.sh/uv/), without installing anything permanently:
 `uvx --from git+https://github.com/alefra93/MCPSonar.git mcpsonar demo`.
+
+Prefer the terminal, or presenting it? `mcpsonar demo --scenario rug-pull` tells the same
+stories step by step, deterministic and on the real engine (`healthy`, `poisoning`, `rug-pull`,
+`latency-regression`, `ci-gate`, or `all`; add `--dashboard` to watch it live). See
+[docs/demo](https://github.com/alefra93/MCPSonar/blob/main/docs/demo/README.md).
 
 The dashboard opens against **four scripted MCP servers**. Within a few minutes you'll watch:
 
@@ -156,7 +166,7 @@ Exit codes: `0` clean · `1` findings ≥ `--fail-on` (default `high`) or lockfi
 As a **GitHub Action**, pinned to a release:
 
 ```yaml
-- uses: alefra93/MCPSonar@v0.8.1
+- uses: alefra93/MCPSonar@v0.9.0
   with:
     target: https://mcp.example.com/mcp
     lock: mcp-tools.lock.json
@@ -170,7 +180,7 @@ A security check shouldn't change under you any more than the servers it watches
 updates:
 
 ```yaml
-- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.8.1
+- uses: alefra93/MCPSonar@<full-commit-sha>  # v0.9.0
 ```
 
 ```yaml
@@ -197,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: alefra93/MCPSonar@v0.8.1
+      - uses: alefra93/MCPSonar@v0.9.0
         with:
           target: https://mcp.example.com/mcp
           lock: mcp-tools.lock.json
@@ -290,7 +300,7 @@ pipx install git+https://github.com/alefra93/MCPSonar.git
 ```
 
 Every GitHub Release (from v0.8.0) also carries the wheel, which needs no git:
-`uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.8.1/mcpsonar-0.8.1-py3-none-any.whl mcpsonar …`.
+`uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar …`.
 Tab completion: `mcpsonar completion bash|zsh|fish|powershell` (see
 [docs/cli.md](https://github.com/alefra93/MCPSonar/blob/main/docs/cli.md#shell-completion)).
 
@@ -378,7 +388,20 @@ Everything is done from the dashboard or the JSON API — no restart required:
 - **Check** runs an on-demand check (analysed exactly like a scheduled one).
 - **Tools** lists the tools exposed right now, with any poisoning findings.
 - **Changes** shows tool changes vs. the pinned definitions; **Approve** trusts the new ones.
-- **History** shows uptime, latency, the learned baseline, shifts and anomalies (1h / 6h / 24h / all).
+- **History** shows uptime, latency, the learned baseline, shifts, anomalies and the
+  **incidents** (each outage from start to recovery, with its reason) (1h / 6h / 24h / all).
+- **Trust report** (top bar, or History → per server): one printable page per server or for
+  the fleet with availability, the pinned tool definitions and their fingerprints, every
+  tool change and **who approved it**, and the findings labeled as heuristics. It records
+  observations; it is not a certification. Also `mcpsonar trust-report` and
+  `GET /api/trust-report?format=json`.
+- **Accounts and roles** (viewer, operator, admin): each person sees only the controls their
+  role allows. **Account** changes your password and signs out other sessions. Admins get
+  **Users** and the **Audit** log (who approved which tool change).
+- **Filters** narrow the list to what needs attention: down, degraded, changes to review,
+  findings, latency anomalies, auth required, paused.
+- Works on a phone, keeps text at WCAG AA contrast in both themes, labels every control for
+  screen readers, and says so when the API can't be reached instead of going blank.
 - **Export / Import** all servers as YAML. Exports mask credentials unless you ask for
   `GET /api/export?include_secrets=true`; for backups, copy the SQLite file
   ([docs/configuration.md](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md#backups)).
@@ -434,6 +457,9 @@ servers:
         url: "https://hooks.example.com/webhook"
         "on": ["down", "degraded"]
         on_anomaly: true         # also fire on anomalies / tool changes
+        on_recovery: true        # also fire once when it is back up
+      - type: slack              # or discord: one message per change, not per check
+        url: "https://hooks.slack.com/services/<...>"
 
   local-server:
     transport: "stdio"
@@ -448,9 +474,13 @@ servers:
 
 - **Uptime Kuma** — GET push. Kuma has no "degraded", so `degraded` maps to **up** with the
   detail (and any anomalies) in the message; `down` maps to down.
+- **Slack, Discord and email** — one message per change: down or degraded, back up (with
+  how long it was out), new findings. Email over required TLS, through the outbound policy. Never one per check; server-controlled text is escaped so it
+  can't ping a channel or disguise a link. See
+  [notifications](https://github.com/alefra93/MCPSonar/blob/main/docs/configuration.md#notifications).
 - **Generic webhook** — POSTs the raw `CheckEvent` JSON for statuses in `on`, plus any check
-  that detected something new when `on_anomaly` is set (once per episode, plus the recovery);
-  retries 3× with backoff.
+  that detected something new when `on_anomaly` is set (once per episode), plus once when the
+  server is back up (`on_recovery`, with `previous_status`); retries 3× with backoff.
 - **Prometheus** — `GET /metrics`: `mcpsonar_up`, `mcpsonar_status_code`, `mcpsonar_latency_ms`,
   `mcpsonar_latency_baseline_ms`, `mcpsonar_latency_anomaly_score`, `mcpsonar_anomalies`,
   `mcpsonar_tool_changes_pending`, `mcpsonar_tool_risks`, `mcpsonar_tools_failed`,

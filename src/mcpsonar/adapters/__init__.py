@@ -9,8 +9,17 @@ from __future__ import annotations
 
 import httpx2
 
-from ..models import GenericWebhook, ServerConfig, UptimeKumaWebhook
+from ..models import (
+    DiscordWebhook,
+    EmailWebhook,
+    GenericWebhook,
+    ServerConfig,
+    SlackWebhook,
+    UptimeKumaWebhook,
+)
 from .base import BaseAdapter
+from .chat import DiscordAdapter, SlackAdapter
+from .email import EmailAdapter
 from .generic_webhook import GenericWebhookAdapter
 from .prometheus import CONTENT_TYPE, render_metrics
 from .uptime_kuma import UptimeKumaAdapter
@@ -18,16 +27,22 @@ from .uptime_kuma import UptimeKumaAdapter
 __all__ = [
     "CONTENT_TYPE",
     "BaseAdapter",
+    "DiscordAdapter",
+    "EmailAdapter",
     "GenericWebhookAdapter",
+    "SlackAdapter",
     "UptimeKumaAdapter",
     "build_push_adapters",
     "render_metrics",
 ]
 
 
-def build_push_adapters(cfg: ServerConfig, client: httpx2.AsyncClient) -> list[BaseAdapter]:
+def build_push_adapters(
+    cfg: ServerConfig, client: httpx2.AsyncClient, name: str = ""
+) -> list[BaseAdapter]:
     """Construct the push adapters declared in a server's webhook config. The scheduler owns
-    the shared client and dispatches events to these per server."""
+    the shared client and dispatches events to these per server. ``name``: the server's
+    display name, for chat messages."""
     adapters: list[BaseAdapter] = []
     for webhook in cfg.webhooks:
         if isinstance(webhook, UptimeKumaWebhook):
@@ -35,7 +50,15 @@ def build_push_adapters(cfg: ServerConfig, client: httpx2.AsyncClient) -> list[B
         elif isinstance(webhook, GenericWebhook):
             adapters.append(
                 GenericWebhookAdapter(
-                    webhook.url, webhook.on, client, on_anomaly=webhook.on_anomaly
+                    webhook.url, webhook.on, client, on_anomaly=webhook.on_anomaly,
+                    on_recovery=webhook.on_recovery,
                 )
             )
+        elif isinstance(webhook, SlackWebhook | DiscordWebhook):
+            cls = SlackAdapter if isinstance(webhook, SlackWebhook) else DiscordAdapter
+            adapters.append(cls(webhook.url, name, webhook.on, client,
+                                on_anomaly=webhook.on_anomaly,
+                                on_recovery=webhook.on_recovery))
+        elif isinstance(webhook, EmailWebhook):
+            adapters.append(EmailAdapter(webhook, name, client))
     return adapters
