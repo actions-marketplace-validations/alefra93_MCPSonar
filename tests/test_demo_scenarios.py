@@ -82,3 +82,39 @@ async def test_demo_servers_take_control_from_the_query_string():
     finally:
         proc.terminate()
         await asyncio.to_thread(proc.wait, 10)
+
+
+async def test_latency_baseline_survives_a_real_hiccup(monkeypatch, tmp_path):
+    # A loaded machine can make one check slow for real: MCPSonar reports it, and the
+    # scenario keeps learning until the server is quiet again instead of failing.
+    import asyncio
+
+    from mcpsonar import scenarios
+    from mcpsonar.demo import scenario_servers, spawn
+    from mcpsonar.output import Output
+    from mcpsonar.storage import Storage
+
+    base = _free_base() + 40
+    proc = await asyncio.to_thread(spawn, base, 1.0, True)
+    storage = await Storage.open(":memory:")
+    try:
+        ctx = scenarios.Ctx(scenario_servers(base), storage, Output(no_color=True), tmp_path)
+        original, calls = scenarios.Ctx.check, {"n": 0}
+
+        async def hiccup(self, key):
+            calls["n"] += 1
+            if calls["n"] == 12:
+                await self.set("docs", latency_ms=600)
+            try:
+                return await original(self, key)
+            finally:
+                if calls["n"] == 12:
+                    await self.set("docs", latency_ms=40)
+
+        monkeypatch.setattr(scenarios.Ctx, "check", hiccup)
+        result = await scenarios._latency_baseline(ctx)
+        assert result["noise_anomalies"] >= 1  # reported, not hidden
+    finally:
+        await storage.close()
+        proc.terminate()
+        await asyncio.to_thread(proc.wait, 10)

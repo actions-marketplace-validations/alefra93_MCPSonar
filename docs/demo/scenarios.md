@@ -42,8 +42,11 @@ of an attack. Every rule is documented, with its measured false positives, in
 
 ## `latency-regression` — slower, then fixed (3 steps, ~10 s)
 
-1. **Learn a baseline.** 24 checks at a steady latency. MCPSonar learns this server's own
-   normal (~60 ms here, including connection set-up); there is no fixed threshold.
+1. **Learn a baseline.** At least 24 checks at a steady latency. MCPSonar learns this
+   server's own normal (~60 ms here, including connection set-up); there is no fixed
+   threshold. If the machine running the demo hiccups (a busy laptop, a shared CI runner),
+   MCPSonar reports that real spike. The step then keeps checking until the server has been
+   quiet for 5 checks, and says how many such hiccups it saw.
 2. **A bad deploy.** Answers take about four times longer. Over 10 slow checks, MCPSonar
    sends **2 notifications**: the first spike, then the confirmed shift (after the seventh
    slow check). The checks in between are marked `ongoing`, not re-notified.
