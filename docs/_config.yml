@@ -17,9 +17,11 @@ relative_links:
   collections: false
 github:
   repository_url: https://github.com/alefra93/MCPSonar
-# banner.html is the source of the README banner image, not a page.
+# banner.html is the source of the README banner image, not a page; blog-rugpull.md is an
+# Italian article draft for another site.
 exclude:
   - banner.html
+  - blog-rugpull.md
 # Google Search Console ownership check (a public token, not a secret); jekyll-seo-tag
 # renders it as <meta name="google-site-verification">.
 webmaster_verifications:
