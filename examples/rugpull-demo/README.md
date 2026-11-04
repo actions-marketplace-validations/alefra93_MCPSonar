@@ -30,7 +30,7 @@ You need the Python environment where mcpsonar is installed (the demo server use
 and uvicorn that mcpsonar brings) and a bash shell (Linux, macOS, or Git Bash on Windows).
 
 ```bash
-pip install git+https://github.com/alefra93/MCPSonar.git
+pip install mcpsonar
 bash examples/rugpull-demo/run_demo.sh
 ```
 

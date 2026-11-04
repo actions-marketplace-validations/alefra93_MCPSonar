@@ -77,8 +77,10 @@ Who approved which tool change is kept in an append-only audit log. See
 
 ## Is it on PyPI?
 
-Not yet. Every [GitHub release](https://github.com/alefra93/MCPSonar/releases) attaches a
-wheel that pip, pipx and uvx install directly. The GitHub Action is pinned by tag or by
+Yes, from v0.9.1: `pip install mcpsonar`, `pipx install mcpsonar` or `uvx mcpsonar`. Releases
+are uploaded by the release workflow through PyPI trusted publishing (no stored token), and
+every [GitHub release](https://github.com/alefra93/MCPSonar/releases) attaches the same
+wheel and sdist. The GitHub Action is pinned by tag or by
 commit SHA.
 
 ## How does it compare with other tools?
