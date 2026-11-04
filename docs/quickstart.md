@@ -13,14 +13,13 @@ You need Python 3.11+ or [uv](https://docs.astral.sh/uv/).
 
 ```bash
 # no install: run any command with uvx
-uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar --version
+uvx mcpsonar --version
 
 # or keep it installed
-pipx install https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl
+pipx install mcpsonar
 ```
 
-The rest of this guide writes `mcpsonar`. With uvx, prefix it with the `uvx --from …` part
-above.
+The rest of this guide writes `mcpsonar`. With uvx, write `uvx mcpsonar` instead.
 
 ## 1. Start three demo MCP servers
 

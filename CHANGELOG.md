@@ -3,6 +3,22 @@
 All notable changes to MCPSonar. Versions follow [SemVer](https://semver.org/); each release
 is a Git tag `vX.Y.Z`, which is also how the GitHub Action is pinned.
 
+## [0.9.1] — 2026-11-04
+
+No change to the code.
+
+### Added
+- Published on PyPI: `pip install mcpsonar`, `uvx mcpsonar`. The release workflow uploads
+  the wheel and sdist it already checked, through trusted publishing (no stored token), from
+  a `pypi` environment that needs the maintainer's approval.
+- `examples/rugpull-demo/`: a local MCP server that changes its tool, and a script that
+  shows MCPSonar catching it.
+
+### Changed
+- README, banner and repository description lead with rug-pull and tool-poisoning
+  detection; uptime and latency monitoring are described after them.
+- Install instructions use PyPI instead of the Git URL.
+
 ## [0.9.0] — 2026-10-23
 
 ### Added

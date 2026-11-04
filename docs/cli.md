@@ -256,8 +256,9 @@ poisoned one) is exercised end-to-end by
   from it. Each GitHub Release (from v0.8.0) attaches the wheel and the sdist.
 - **`uvx`:** verified, from the built wheel, on Windows (Python 3.13) and in CI (Linux):
   `uvx --from <wheel or git URL> mcpsonar --version`.
-- **`pip install mcpsonar` from PyPI:** not published. Publishing needs the maintainer's
-  explicit approval (see the roadmap).
+- **`pip install mcpsonar` from PyPI:** from v0.9.1. The release workflow uploads the
+  checked wheel and sdist through trusted publishing, after the maintainer approves the
+  `pypi` environment.
 
 ## Shell completion
 
