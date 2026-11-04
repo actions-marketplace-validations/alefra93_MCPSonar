@@ -44,12 +44,12 @@ with it.
 > [troubleshooting](https://github.com/alefra93/MCPSonar/blob/main/docs/troubleshooting.md).
 
 ```bash
-pip install git+https://github.com/alefra93/MCPSonar.git
+pip install mcpsonar
 mcpsonar demo --scenario rug-pull
 ```
 
 Or, with [uv](https://docs.astral.sh/uv/), without installing anything permanently:
-`uvx --from git+https://github.com/alefra93/MCPSonar.git mcpsonar demo --scenario rug-pull`.
+`uvx mcpsonar demo --scenario rug-pull`.
 
 A local calculator server is pinned, then swaps its `add` tool for a poisoned version;
 MCPSonar shows what changed and holds the server until the change is reviewed. Every step
@@ -333,13 +333,12 @@ mcpsonar run                  # dashboard at http://127.0.0.1:8675, db at ./mcps
 ### Option C — Just the command line (no clone)
 
 ```bash
-uvx --from git+https://github.com/alefra93/MCPSonar.git mcpsonar scan https://example.com/mcp
+uvx mcpsonar scan https://example.com/mcp
 # or keep it installed:
-pipx install git+https://github.com/alefra93/MCPSonar.git
+pipx install mcpsonar
 ```
 
-Every GitHub Release (from v0.8.0) also carries the wheel, which needs no git:
-`uvx --from https://github.com/alefra93/MCPSonar/releases/download/v0.9.0/mcpsonar-0.9.0-py3-none-any.whl mcpsonar …`.
+Every GitHub Release (from v0.8.0) also carries the same wheel and sdist as PyPI.
 Tab completion: `mcpsonar completion bash|zsh|fish|powershell` (see
 [docs/cli.md](https://github.com/alefra93/MCPSonar/blob/main/docs/cli.md#shell-completion)).
 
